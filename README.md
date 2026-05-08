@@ -1,4 +1,4 @@
-# 💧 Chatbot AutoTest — สำนักชลประทานที่ 4 (v2)
+# 💧 Chatbot AutoTest — สำนักชลประทานที่ 4
 
 ระบบทดสอบอัตโนมัติสำหรับ **Dify Chatbot** สร้างคำถาม 100 ข้อจาก schema จริงของ `v_trans_all` พร้อมให้คะแนน 4 เกณฑ์และ export ผล
 
