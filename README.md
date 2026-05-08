@@ -8,7 +8,7 @@
 
 | ช่อง | ค่าที่ต้องใส่ | หาได้จาก |
 |------|--------------|----------|
-| Base URL | `https://api.dify.ai/v1` | Dify → App → API Access → API Endpoint |
+| Base URL | `https://dify.thebrainstem.com/v1` | Dify → App → API Access → API Endpoint |
 | API Key | `app-xxxxxxxxxxxx` | Dify → App → API Access → กด Generate API Key |
 | User ID | อะไรก็ได้ เช่น `autotest-rids4` | กำหนดเองเพื่อระบุผู้ทดสอบ |
 | Response Mode | `blocking` (แนะนำ) | คงที่ ไม่ต้องเปลี่ยน |
