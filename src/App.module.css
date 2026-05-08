@@ -1,0 +1,16 @@
+.app { min-height: 100vh; display: flex; flex-direction: column; }
+.header { background: var(--bg); border-bottom: 0.5px solid var(--border); padding: .875rem 1.5rem; }
+.hInner { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.title { font-size: 18px; font-weight: 500; }
+.sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.pillInfo,.pillOk,.pillErr { padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 500; }
+.pillInfo { background: var(--info-bg); color: var(--info-text); }
+.pillOk   { background: var(--ok-bg);   color: var(--ok-text); }
+.pillErr  { background: var(--err-bg);  color: var(--err-text); }
+.nav { background: var(--bg); border-bottom: 0.5px solid var(--border); display: flex; padding: 0 1.5rem; overflow-x: auto; }
+.tab { padding: 9px 14px; font-size: 13px; border: none; background: none; color: var(--text-2); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; transition: color .15s; }
+.tab:hover { color: var(--text); }
+.active { color: var(--text) !important; border-bottom-color: var(--text) !important; font-weight: 500; }
+.main { flex: 1; max-width: 1100px; width: 100%; margin: 0 auto; padding: 1.25rem; }
+@media(max-width:640px){ .main{padding:.875rem} .hInner{flex-direction:column;align-items:flex-start} }
