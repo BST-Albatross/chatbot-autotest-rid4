@@ -82,30 +82,81 @@ export async function evaluateResult(question, response, cfg) {
   }
 }
 
+function isTimeoutError(error) {
+  return typeof error === 'string' && /timeout/i.test(error)
+}
+
+function buildErrorResult(question, err, elapsed = 0) {
+  const message = err?.message || String(err)
+  return {
+    id: question.id,
+    text: question.text,
+    type: question.type,
+    referenceAnswer: question.referenceAnswer,
+    keyPoints: question.keyPoints,
+    answer: '',
+    elapsed: parseFloat(elapsed.toFixed(2)),
+    wordCount: 0,
+    accuracyScore: 0,
+    accuracy: 'fail',
+    accuracyReason: message,
+    coveredPoints: [],
+    missedPoints: question.keyPoints || [],
+    speedScore: 'fail',
+    speedLabel: message,
+    consistency: 'fail',
+    consistencyReason: message,
+    lengthScore: 'fail',
+    score: 0,
+    noAnswer: false,
+    overall: 'fail',
+    error: message,
+  }
+}
+
 export async function runTestSuite(questions, difyConfig, testConfig, options = {}) {
   const { onProgress = () => {}, onResult = () => {}, onLog = () => {}, stopSignal = { stopped: false } } = options
   const results = []
 
   for (let i = 0; i < questions.length; i++) {
-    if (stopSignal.stopped) { onLog('หยุดโดยผู้ใช้', 'warn'); break }
+    if (stopSignal.stopped) {
+      onLog('หยุดโดยผู้ใช้', 'warn')
+      break
+    }
 
     const q = questions[i]
     onProgress(i, questions.length, q)
 
-    const response = await sendToDify(q.text, { ...difyConfig, timeout: testConfig.timeout })
-    const result = await evaluateResult(q, response, testConfig)
+    let result
+    try {
+      const response = await sendToDify(q.text, { ...difyConfig, timeout: testConfig.timeout })
+      result = await evaluateResult(q, response, testConfig)
+
+      if (!response.ok && isTimeoutError(response.error)) {
+        onLog(`⏱ Timeout ข้อ #${q.id} — ดำเนินข้อถัดไป`, 'warn')
+      }
+    } catch (err) {
+      result = buildErrorResult(q, err)
+      onLog(`⚠️ ข้อ #${q.id} ผิดพลาด: ${err.message} — ดำเนินข้อถัดไป`, 'warn')
+    }
+
     results.push(result)
     onResult(result)
 
     if (results.length > 10) {
-      const failPct = (results.filter(r => r.overall === 'fail').length / results.length) * 100
-      if (failPct > testConfig.stopAtFailPct) {
-        onLog(`หยุดอัตโนมัติ: fail เกิน ${testConfig.stopAtFailPct}%`, 'warn')
-        break
+      const forStop = results.filter(r => !isTimeoutError(r.error))
+      if (forStop.length > 10) {
+        const failPct = (forStop.filter(r => r.overall === 'fail').length / forStop.length) * 100
+        if (failPct > testConfig.stopAtFailPct) {
+          onLog(`หยุดอัตโนมัติ: fail เกิน ${testConfig.stopAtFailPct}% (ไม่นับ Timeout)`, 'warn')
+          break
+        }
       }
     }
+
     await sleep(80)
   }
+
   return results
 }
 

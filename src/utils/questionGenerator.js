@@ -260,11 +260,15 @@ ${pointsList}
 ตอบ JSON เท่านั้น:
 {"accuracy_score":0.0,"covered_points":["..."],"missed_points":["..."],"accuracy_reason":"...","consistency":"pass","consistency_reason":"..."}`
 
+  const judgeController = new AbortController()
+  const judgeTimer = setTimeout(() => judgeController.abort(), 45_000)
+
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model: JUDGE_MODEL, max_tokens: 400, messages: [{ role: 'user', content: prompt }] }),
+      signal: judgeController.signal,
     })
     const data = await res.json()
     const raw = data.content?.map(c => c.text || '').join('') || ''
@@ -291,6 +295,8 @@ ${pointsList}
     return result
   } catch {
     return heuristicContentJudge(answer, referenceAnswer, points, question)
+  } finally {
+    clearTimeout(judgeTimer)
   }
 }
 

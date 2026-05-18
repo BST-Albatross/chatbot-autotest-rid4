@@ -25,25 +25,39 @@ export default function RunTab({ questions, difyConfig, setDifyConfig, testConfi
     setLive([]); setLogs([]); setProg(0); onRunning(true)
     addLog(`เริ่มรัน ${questions.length} คำถาม → ${difyConfig.baseUrl}`, 'info')
 
-    const results = await runTestSuite(questions, difyConfig, testConfig, {
-      stopSignal: stopRef.current,
-      onProgress: (i, total, q) => {
-        setStatusTxt(`#${q.id}: ${q.text.slice(0, 35)}...`)
-        setCountTxt(`${i+1} / ${total}`)
-        setProg(Math.round((i / total) * 100))
-      },
-      onResult: r => {
-        setLive(p => [...p, r])
-        const icon = r.overall === 'pass' ? '✓' : '✗'
-        addLog(`[${icon}] #${r.id} | ${r.elapsed}s | เนื้อหา ${r.accuracyScore}/1 | ${r.score}/4 | ${r.text.slice(0, 28)}...`, r.overall === 'pass' ? 'ok' : 'err')
-      },
-      onLog: addLog,
-    })
+    let results = []
+    try {
+      results = await runTestSuite(questions, difyConfig, testConfig, {
+        stopSignal: stopRef.current,
+        onProgress: (i, total, q) => {
+          setStatusTxt(`#${q.id}: ${q.text.slice(0, 35)}...`)
+          setCountTxt(`${i + 1} / ${total}`)
+          setProg(Math.round(((i + 1) / total) * 100))
+        },
+        onResult: r => {
+          setLive(p => [...p, r])
+          const icon = r.overall === 'pass' ? '✓' : '✗'
+          const timeoutTag = r.error && /timeout/i.test(r.error) ? ' ⏱' : ''
+          addLog(
+            `[${icon}] #${r.id}${timeoutTag} | ${r.elapsed}s | เนื้อหา ${r.accuracyScore}/1 | ${r.score}/4 | ${r.text.slice(0, 28)}...`,
+            r.overall === 'pass' ? 'ok' : 'err',
+          )
+        },
+        onLog: addLog,
+      })
+    } catch (e) {
+      addLog(`รันหยุดกะทันหัน: ${e.message}`, 'err')
+    } finally {
+      onRunning(false)
+    }
 
-    setProg(100); setStatusTxt('เสร็จสิ้น'); onRunning(false)
-    const pass = results.filter(r => r.overall === 'pass').length
-    addLog(`สรุป: ผ่าน ${pass}/${results.length} (${Math.round(pass/results.length*100)}%)`, 'info')
-    onResults(results)
+    setProg(100)
+    setStatusTxt('เสร็จสิ้น')
+    if (results.length) {
+      const pass = results.filter(r => r.overall === 'pass').length
+      addLog(`สรุป: ผ่าน ${pass}/${results.length} (${Math.round(pass / results.length * 100)}%)`, 'info')
+      onResults(results)
+    }
   }
 
   const livePass = live.filter(r => r.overall === 'pass').length
