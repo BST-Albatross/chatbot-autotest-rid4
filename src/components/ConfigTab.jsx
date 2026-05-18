@@ -37,8 +37,8 @@ export default function ConfigTab({ difyConfig, setDifyConfig, testConfig, setTe
           <div className={u.field} style={{gridColumn:'1/-1'}}>
             <label className={u.lbl}>Base URL <span style={{color:'var(--err-text)'}}>*</span></label>
             <input value={difyConfig.baseUrl} onChange={e => setD('baseUrl', e.target.value)}
-              placeholder="https://api.dify.ai/v1" />
-            <span style={{fontSize:11,color:'var(--text-3)'}}>ตัวอย่าง: https://api.dify.ai/v1 หรือ http://your-server/v1</span>
+              placeholder="https://dify.thebrainstem.com/v1" />
+            <span style={{fontSize:11,color:'var(--text-3)'}}>ตัวอย่าง: https://dify.thebrainstem.com/v1</span>
           </div>
           <div className={u.field} style={{gridColumn:'1/-1'}}>
             <label className={u.lbl}>API Key <span style={{color:'var(--err-text)'}}>*</span></label>
@@ -48,7 +48,7 @@ export default function ConfigTab({ difyConfig, setDifyConfig, testConfig, setTe
           </div>
           <div className={u.field}>
             <label className={u.lbl}>User ID (ระบุตัวผู้ทดสอบ)</label>
-            <input value={difyConfig.userId} onChange={e => setD('userId', e.target.value)} placeholder="autotest-rids4" />
+            <input value={difyConfig.userId} onChange={e => setD('userId', e.target.value)} placeholder="autotest-rid4" />
           </div>
           <div className={u.field}>
             <label className={u.lbl}>Response Mode</label>

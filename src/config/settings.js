@@ -8,7 +8,7 @@ export const DIFY_DEFAULTS = {
   // วิธีหา URL: Dify > เลือก App > API Access > API Endpoint
   // ตัวอย่าง: https://api.dify.ai/v1  หรือ  http://your-server/v1
   // ------------------------------------------------------------
-  baseUrl: 'https://api.dify.ai/v1',
+  baseUrl: 'https://dify.thebrainstem.com/v1',
 
   // ------------------------------------------------------------
   // วิธีหา API Key: Dify > เลือก App > API Access > API Key
@@ -17,7 +17,7 @@ export const DIFY_DEFAULTS = {
   apiKey: '',
 
   // user identifier — ใส่อะไรก็ได้ ใช้ระบุตัวผู้ทดสอบ
-  userId: 'autotest-rids4',
+  userId: 'autotest-rid4',
 
   // response_mode: "blocking" = รอคำตอบครบแล้วค่อยส่งกลับ (แนะนำสำหรับ test)
   responseMode: 'blocking',

@@ -22,7 +22,7 @@ export async function sendToDify(question, config) {
         query: question,
         response_mode: mode,
         conversation_id: '',
-        user: userId || 'autotest-rids4',
+        user: userId || 'autotest-rid4',
       }),
       signal: controller.signal,
     })

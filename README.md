@@ -10,7 +10,7 @@
 |------|--------------|----------|
 | Base URL | `https://dify.thebrainstem.com/v1` | Dify → App → API Access → API Endpoint |
 | API Key | `app-xxxxxxxxxxxx` | Dify → App → API Access → กด Generate API Key |
-| User ID | อะไรก็ได้ เช่น `autotest-rids4` | กำหนดเองเพื่อระบุผู้ทดสอบ |
+| User ID | อะไรก็ได้ เช่น `autotest-rid4` | กำหนดเองเพื่อระบุผู้ทดสอบ |
 | Response Mode | `blocking` (แนะนำ) | คงที่ ไม่ต้องเปลี่ยน |
 
 > ⚠️ ห้ามใส่คำว่า `Bearer` นำหน้า API Key — ระบบจัดการให้อัตโนมัติ
@@ -21,7 +21,7 @@
 
 ```bash
 # 1. Clone / แตก zip
-cd chatbot-autotest-rids4
+cd chatbot-autotest-rid4
 
 # 2. ติดตั้ง dependencies
 npm install
