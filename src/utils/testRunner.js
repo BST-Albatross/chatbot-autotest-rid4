@@ -86,6 +86,18 @@ function isTimeoutError(error) {
   return typeof error === 'string' && /timeout/i.test(error)
 }
 
+/** หยุดกลางชุดเมื่อ fail สูงเกินเกณฑ์ — ต้องรันอย่างน้อย 80% ของชุดก่อน (ไม่หยุดที่ข้อ 11) */
+function shouldAutoStop(results, totalQuestions, stopAtFailPct) {
+  if (!stopAtFailPct || stopAtFailPct <= 0) return false
+
+  const forStop = results.filter(r => !isTimeoutError(r.error))
+  const minSamples = Math.min(totalQuestions, Math.max(10, Math.ceil(totalQuestions * 0.8)))
+  if (forStop.length < minSamples) return false
+
+  const failPct = (forStop.filter(r => r.overall === 'fail').length / forStop.length) * 100
+  return failPct > stopAtFailPct
+}
+
 function buildErrorResult(question, err, elapsed = 0) {
   const message = err?.message || String(err)
   return {
@@ -143,15 +155,14 @@ export async function runTestSuite(questions, difyConfig, testConfig, options = 
     results.push(result)
     onResult(result)
 
-    if (results.length > 10) {
+    if (shouldAutoStop(results, questions.length, testConfig.stopAtFailPct)) {
       const forStop = results.filter(r => !isTimeoutError(r.error))
-      if (forStop.length > 10) {
-        const failPct = (forStop.filter(r => r.overall === 'fail').length / forStop.length) * 100
-        if (failPct > testConfig.stopAtFailPct) {
-          onLog(`หยุดอัตโนมัติ: fail เกิน ${testConfig.stopAtFailPct}% (ไม่นับ Timeout)`, 'warn')
-          break
-        }
-      }
+      const failPct = Math.round((forStop.filter(r => r.overall === 'fail').length / forStop.length) * 100)
+      onLog(
+        `หยุดอัตโนมัติ: fail ${failPct}% เกิน ${testConfig.stopAtFailPct}% (หลังรัน ${forStop.length}/${questions.length} ข้อ, ไม่นับ Timeout)`,
+        'warn',
+      )
+      break
     }
 
     await sleep(80)
