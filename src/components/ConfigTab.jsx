@@ -90,7 +90,10 @@ export default function ConfigTab({ testConfig, setTestConfig, questionCount, on
           </div>
           <div className={u.field}>
             <label className={u.lbl}>หยุดเมื่อ fail เกิน (%)</label>
-            <input type="number" value={testConfig.stopAtFailPct} onChange={e => setT('stopAtFailPct', +e.target.value)} min={10} max={100} />
+            <input type="number" value={testConfig.stopAtFailPct} onChange={e => setT('stopAtFailPct', +e.target.value)} min={0} max={100} />
+            <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              0 = รันครบทุกข้อ | &gt;0 ตรวจหลังรันอย่างน้อย 80% ของชุด (เช่น 22 ข้อ → ตรวจหลังข้อ 18)
+            </span>
           </div>
           <div className={u.field}>
             <label className={u.lbl}>คะแนนความถูกต้องขั้นต่ำ (0–1)</label>
