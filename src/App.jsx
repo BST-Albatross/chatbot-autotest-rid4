@@ -27,6 +27,13 @@ export default function App() {
   const pass = results.filter(r => r.overall === 'pass').length
   const fail = results.filter(r => r.overall === 'fail').length
 
+  function handleResetQuestions() {
+    if (!questions.length) return
+    if (!window.confirm(`ล้างคำถาม ${questions.length} ข้อที่ค้างอยู่?\n\nต้องสร้างชุดคำถามใหม่ก่อนรัน Test`)) return
+    setQuestions([])
+    setTab('config')
+  }
+
   return (
     <div className={s.app}>
       <header className={s.header}>
@@ -56,17 +63,24 @@ export default function App() {
       <main className={s.main}>
         {tab === 'config' && (
           <ConfigTab
-            difyConfig={difyConfig} setDifyConfig={setDifyConfig}
             testConfig={testConfig} setTestConfig={setTestConfig}
+            questionCount={questions.length}
             onGenerated={qs => { setQuestions(qs); setTab('questions') }}
+            onResetQuestions={handleResetQuestions}
           />
         )}
         {tab === 'questions' && (
-          <QuestionsTab questions={questions} onGoRun={() => setTab('run')} />
+          <QuestionsTab
+            questions={questions}
+            onGoRun={() => setTab('run')}
+            onResetQuestions={handleResetQuestions}
+          />
         )}
         {tab === 'run' && (
           <RunTab
-            questions={questions} difyConfig={difyConfig} testConfig={testConfig}
+            questions={questions}
+            difyConfig={difyConfig} setDifyConfig={setDifyConfig}
+            testConfig={testConfig} setTestConfig={setTestConfig}
             isRunning={isRunning} stopRef={stopRef}
             onRunning={setIsRunning} onResults={r => { setResults(r); setTab('summary') }}
           />

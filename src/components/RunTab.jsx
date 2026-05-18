@@ -2,7 +2,9 @@ import { useState, useRef } from 'react'
 import { runTestSuite } from '../utils/testRunner.js'
 import u from './ui.module.css'
 
-export default function RunTab({ questions, difyConfig, testConfig, isRunning, stopRef, onRunning, onResults }) {
+export default function RunTab({ questions, difyConfig, setDifyConfig, testConfig, setTestConfig, isRunning, stopRef, onRunning, onResults }) {
+  const setD = (k, v) => setDifyConfig(p => ({ ...p, [k]: v }))
+  const setT = (k, v) => setTestConfig(p => ({ ...p, [k]: v }))
   const [prog, setProg] = useState(0)
   const [statusTxt, setStatusTxt] = useState('พร้อมรัน')
   const [countTxt, setCountTxt] = useState('0 / 0')
@@ -33,7 +35,7 @@ export default function RunTab({ questions, difyConfig, testConfig, isRunning, s
       onResult: r => {
         setLive(p => [...p, r])
         const icon = r.overall === 'pass' ? '✓' : '✗'
-        addLog(`[${icon}] #${r.id} | ${r.elapsed}s | ${r.score}/4 | ${r.text.slice(0,30)}...`, r.overall === 'pass' ? 'ok' : 'err')
+        addLog(`[${icon}] #${r.id} | ${r.elapsed}s | เนื้อหา ${r.accuracyScore}/1 | ${r.score}/4 | ${r.text.slice(0, 28)}...`, r.overall === 'pass' ? 'ok' : 'err')
       },
       onLog: addLog,
     })
@@ -49,6 +51,72 @@ export default function RunTab({ questions, difyConfig, testConfig, isRunning, s
 
   return (
     <div>
+      {/* Dify config */}
+      <div className={u.card}>
+        <div className={u.cardTitle}>🔗 ตั้งค่า Dify Chatbot</div>
+
+        <div style={{background:'var(--info-bg)',borderRadius:'var(--r-md)',padding:'10px 12px',marginBottom:14,fontSize:12,color:'var(--info-text)'}}>
+          <strong>วิธีหาค่าจาก Dify:</strong><br/>
+          1. เข้า Dify → เลือก App → คลิก <strong>API Access</strong> (แถบซ้าย)<br/>
+          2. <strong>API Endpoint</strong> → คัดลอกใส่ช่อง Base URL ด้านล่าง<br/>
+          3. <strong>API Key</strong> → กด "Generate" แล้วคัดลอกใส่ช่อง API Key
+        </div>
+
+        <div className={u.g2}>
+          <div className={u.field} style={{gridColumn:'1/-1'}}>
+            <label className={u.lbl}>Base URL <span style={{color:'var(--err-text)'}}>*</span></label>
+            <input value={difyConfig.baseUrl} onChange={e => setD('baseUrl', e.target.value)}
+              placeholder="https://dify.thebrainstem.com/v1" />
+            <span style={{fontSize:11,color:'var(--text-3)'}}>ตัวอย่าง: https://dify.thebrainstem.com/v1</span>
+          </div>
+          <div className={u.field} style={{gridColumn:'1/-1'}}>
+            <label className={u.lbl}>API Key <span style={{color:'var(--err-text)'}}>*</span></label>
+            <input type="password" value={difyConfig.apiKey} onChange={e => setD('apiKey', e.target.value)}
+              placeholder="app-xxxxxxxxxxxxxxxxxxxxxxxx" />
+            <span style={{fontSize:11,color:'var(--text-3)'}}>รูปแบบ: app-xxxx... (ไม่ต้องใส่ Bearer นำหน้า)</span>
+          </div>
+          <div className={u.field}>
+            <label className={u.lbl}>User ID (ระบุตัวผู้ทดสอบ)</label>
+            <input value={difyConfig.userId} onChange={e => setD('userId', e.target.value)} placeholder="autotest-rid4" />
+          </div>
+          <div className={u.field}>
+            <label className={u.lbl}>Response Mode</label>
+            <select value={difyConfig.responseMode} onChange={e => setD('responseMode', e.target.value)}>
+              <option value="blocking">blocking (รอคำตอบครบ — แนะนำ)</option>
+              <option value="streaming">streaming (stream แต่ช้ากว่าสำหรับ test)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Criteria */}
+      <div className={u.card}>
+        <div className={u.cardTitle}>📐 เกณฑ์การให้คะแนน (4 ด้าน)</div>
+        <div className={u.g2}>
+          <div>
+            <div style={{fontSize:12,marginBottom:8,color:'var(--text-2)'}}>⏱ ระดับความเร็ว (วินาที)</div>
+            <div className={u.g3} style={{marginBottom:0}}>
+              {[['speedGood','🟢 ดี (≤)'],['speedOk','🟡 ปานกลาง (≤)'],['speedMax','🔴 สูงสุด (≤)']].map(([k,l]) => (
+                <div key={k} className={u.field} style={{marginBottom:0}}>
+                  <label className={u.lbl}>{l}</label>
+                  <input type="number" value={testConfig[k]} onChange={e => setT(k, +e.target.value)} min={1} max={60} />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:12,marginBottom:8,color:'var(--text-2)'}}>📏 ความยาวคำตอบ</div>
+            <div className={u.field}>
+              <label className={u.lbl}>สูงสุด (words)</label>
+              <input type="number" value={testConfig.maxWords} onChange={e => setT('maxWords', +e.target.value)} />
+            </div>
+          </div>
+        </div>
+        <div style={{fontSize:12,color:'var(--text-3)',marginTop:4,lineHeight:1.8}}>
+          ✅ ความถูกต้อง — AI ให้คะแนนเทียบแนวทางคำตอบ (สัดส่วนตามประเด็น เช่น 1/3 = 0.33) | ⚠️ ความสอดคล้อง — ตรวจข้อความขัดแย้ง
+        </div>
+      </div>
+
       <div className={u.card}>
         <div className={u.cardTitle}>▶️ รัน Test Suite</div>
         <div className={u.btnRow} style={{marginBottom:12}}>

@@ -19,11 +19,12 @@ export const DIFY_DEFAULTS = {
   // user identifier — ใส่อะไรก็ได้ ใช้ระบุตัวผู้ทดสอบ
   userId: 'autotest-rid4',
 
-  // response_mode: "blocking" = รอคำตอบครบแล้วค่อยส่งกลับ (แนะนำสำหรับ test)
-  responseMode: 'blocking',
+  // response_mode: "streaming" = stream คำตอบ | "blocking" = รอคำตอบครบ
+  responseMode: 'streaming',
 }
 
 export const TEST_DEFAULTS = {
+  questionCountMandatory: 5,
   questionCountGeneral: 50,
   questionCountDatabase: 50,
   speedGood: 5,    // ≤ 5s = ดี
@@ -32,7 +33,8 @@ export const TEST_DEFAULTS = {
   maxWords: 500,
   timeout: 20,
   stopAtFailPct: 50,
-  useAiJudge: false,
+  /** คะแนนความถูกต้องขั้นต่ำ (0–1) เพื่อถือว่าผ่าน — เช่น 0.5 = ครบครึ่งประเด็น */
+  accuracyMinScore: 0.5,
 }
 
 // Anthropic key สำหรับสร้างคำถาม + AI Judge (ใส่ใน .env)

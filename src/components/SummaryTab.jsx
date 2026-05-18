@@ -46,6 +46,7 @@ export default function SummaryTab({ results, onGoDetail }) {
                 ['คำถามทั้งหมด', s.total, ''],
                 ['ผ่าน', s.pass, 'var(--ok-text)'],
                 ['ไม่ผ่าน', s.fail, 'var(--err-text)'],
+                ['คะแนนเนื้อหาเฉลี่ย', (s.avgAccuracyScore / 100).toFixed(2) + '/1', ''],
                 ['เวลาเฉลี่ย', s.avgTime + 's', ''],
                 ['เร็วสุด', s.minTime + 's', 'var(--ok-text)'],
                 ['ช้าสุด', s.maxTime + 's', s.maxTime > 10 ? 'var(--err-text)' : ''],
@@ -63,7 +64,7 @@ export default function SummaryTab({ results, onGoDetail }) {
       {/* ผลแยก 4 เกณฑ์ */}
       <div className={u.card}>
         <div className={u.cardTitle}>🎯 ผลแยกตามเกณฑ์ 4 ด้าน</div>
-        <Bar label="✅ ความถูกต้อง" pass={s.accuracyPass} total={s.total} color="#3b6d11" />
+        <Bar label={`✅ ความถูกต้อง (เฉลี่ย ${(s.avgAccuracyScore / 100).toFixed(2)}/1)`} pass={s.accuracyPass} total={s.total} color="#3b6d11" />
         <Bar label="⏱ ความเร็ว (≤10s)" pass={s.speedPass + s.speedWarn} total={s.total} color="#185fa5" />
         <Bar label="⚠️ ความสอดคล้อง" pass={s.consistencyPass} total={s.total} color="#854f0b" />
         <Bar label="📏 ความยาว (≤500w)" pass={s.lengthPass} total={s.total} color="#533ab7" />
@@ -72,7 +73,12 @@ export default function SummaryTab({ results, onGoDetail }) {
       {/* ผลแยกประเภทคำถาม */}
       <div className={u.card}>
         <div className={u.cardTitle}>🗂 ผลแยกตามประเภทคำถาม</div>
-        <div className={u.g2}>
+        <div className={u.g3}>
+          <div className={u.metric}>
+            <div className={u.mLabel}>⭐ คำถามบังคับ</div>
+            <div className={u.mVal}>{s.mandatoryPass}/{s.mandatoryTotal}</div>
+            <div className={u.mSub}>({s.mandatoryTotal ? Math.round(s.mandatoryPass / s.mandatoryTotal * 100) : 0}% ผ่าน)</div>
+          </div>
           <div className={u.metric}>
             <div className={u.mLabel}>📌 คำถามข้อมูลทั่วไป</div>
             <div className={u.mVal}>{s.generalPass}/{s.generalTotal}</div>

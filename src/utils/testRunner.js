@@ -1,12 +1,11 @@
 // utils/testRunner.js
 import { sendToDify } from './difyClient.js'
-import { judgeAnswer } from './questionGenerator.js'
+import { judgeAnswerAgainstReference, isNonSubstantiveResponse, isClarificationOnlyResponse } from './questionGenerator.js'
 
-export async function evaluateResult(question, response, cfg, useAiJudge) {
+export async function evaluateResult(question, response, cfg) {
   const { elapsed, answer, ok, error } = response
-  const { speedGood, speedOk, speedMax, maxWords } = cfg
+  const { speedGood, speedOk, speedMax, maxWords, accuracyMinScore } = cfg
 
-  // ความเร็ว
   let speedScore, speedLabel
   if (!ok)                      { speedScore = 'fail'; speedLabel = error || 'Error' }
   else if (elapsed <= speedGood) { speedScore = 'pass'; speedLabel = `${elapsed.toFixed(1)}s ⚡` }
@@ -14,39 +13,71 @@ export async function evaluateResult(question, response, cfg, useAiJudge) {
   else if (elapsed <= speedMax)  { speedScore = 'warn'; speedLabel = `${elapsed.toFixed(1)}s 🐢` }
   else                           { speedScore = 'fail'; speedLabel = `${elapsed.toFixed(1)}s ❌` }
 
-  // ความยาว
   const wordCount = answer ? answer.trim().split(/\s+/).filter(Boolean).length : 0
   const lengthScore = ok && wordCount > 0 && wordCount <= maxWords ? 'pass' : 'fail'
 
-  // ความถูกต้อง + สอดคล้อง
-  let accuracy = 'pass', accuracyReason = ''
-  let consistency = 'pass', consistencyReason = ''
+  let accuracyScore = 0
+  let accuracy = 'fail'
+  let accuracyReason = ''
+  let coveredPoints = []
+  let missedPoints = []
+  let consistency = 'pass'
+  let consistencyReason = ''
 
   if (!ok) {
-    accuracy = 'fail'; accuracyReason = error || 'ไม่ได้รับคำตอบ'
-    consistency = 'fail'; consistencyReason = 'ไม่ได้รับคำตอบ'
-  } else if (useAiJudge) {
-    const j = await judgeAnswer(question.text, answer, question.type)
-    accuracy = j.accuracy; accuracyReason = j.accuracy_reason
-    consistency = j.consistency; consistencyReason = j.consistency_reason
+    accuracyReason = error || 'ไม่ได้รับคำตอบ'
+    consistency = 'fail'
+    consistencyReason = 'ไม่ได้รับคำตอบ'
   } else {
-    if (answer.length < 10) { accuracy = 'fail'; accuracyReason = 'คำตอบสั้นผิดปกติ' }
-    const conflict = /(ขออภัย|ไม่มีข้อมูล|ไม่พบ).{0,60}(แต่|อย่างไรก็)/i.test(answer)
-    if (conflict) { consistency = 'fail'; consistencyReason = 'พบข้อความขัดแย้งในคำตอบ' }
+    const j = await judgeAnswerAgainstReference(question, answer)
+    accuracyScore = j.accuracyScore
+    accuracyReason = j.accuracyReason
+    coveredPoints = j.coveredPoints
+    missedPoints = j.missedPoints
+    consistency = j.consistency
+    consistencyReason = j.consistencyReason
+    if (isNonSubstantiveResponse(answer, question)) {
+      accuracyScore = 0
+      accuracy = 'fail'
+      consistency = 'fail'
+      if (isClarificationOnlyResponse(answer, question)) {
+        accuracyReason = 'ไม่ตอบข้อมูลจากฐานข้อมูล — ถามย้อนกลับให้ระบุจังหวัด/สถานีแทนการสรุปค่าตามแนวทาง'
+        consistencyReason = 'คำตอบไม่สมบูรณ์ (ขอข้อมูลเพิ่มแทนการตอบ) ไม่ถือว่าผ่าน'
+      } else if (!accuracyReason.includes('ไม่ตอบ')) {
+        accuracyReason = 'ไม่ตอบเนื้อหาตามคำถาม — แจ้งว่าไม่พบข้อมูลในระบบแทนการให้คำตอบตามแนวทาง'
+        consistencyReason = 'คำตอบไม่สมบูรณ์ (ปฏิเสธ/ไม่พบข้อมูล) ไม่ถือว่าผ่านแม้ไม่มีข้อความขัดแย้ง'
+      }
+    } else {
+      accuracy = accuracyScore >= accuracyMinScore ? 'pass' : 'fail'
+    }
   }
 
   const scores = [accuracy, speedScore === 'fail' ? 'fail' : 'pass', consistency, lengthScore]
   const passCount = scores.filter(s => s === 'pass').length
+  const noAnswer = ok && isNonSubstantiveResponse(answer, question)
 
   return {
-    id: question.id, text: question.text, type: question.type,
-    answer, elapsed: parseFloat(elapsed.toFixed(2)), wordCount,
-    accuracy, accuracyReason,
-    speedScore, speedLabel,
-    consistency, consistencyReason,
-    lengthScore, wordCount,
+    id: question.id,
+    text: question.text,
+    type: question.type,
+    referenceAnswer: question.referenceAnswer,
+    keyPoints: question.keyPoints,
+    answer,
+    elapsed: parseFloat(elapsed.toFixed(2)),
+    wordCount,
+    accuracyScore,
+    accuracy,
+    accuracyReason,
+    coveredPoints,
+    missedPoints,
+    speedScore,
+    speedLabel,
+    consistency,
+    consistencyReason,
+    lengthScore,
     score: passCount,
-    overall: passCount >= 3 ? 'pass' : 'fail',
+    noAnswer,
+    overall: !noAnswer && accuracy === 'pass' && passCount >= 3 ? 'pass' : 'fail',
     error: error || null,
   }
 }
@@ -62,11 +93,10 @@ export async function runTestSuite(questions, difyConfig, testConfig, options = 
     onProgress(i, questions.length, q)
 
     const response = await sendToDify(q.text, { ...difyConfig, timeout: testConfig.timeout })
-    const result = await evaluateResult(q, response, testConfig, testConfig.useAiJudge)
+    const result = await evaluateResult(q, response, testConfig)
     results.push(result)
     onResult(result)
 
-    // auto-stop
     if (results.length > 10) {
       const failPct = (results.filter(r => r.overall === 'fail').length / results.length) * 100
       if (failPct > testConfig.stopAtFailPct) {
