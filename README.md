@@ -44,23 +44,25 @@ npm run build
 แอปเป็น static SPA ต้อง **serve ไฟล์ใน `dist/` และฟังพอร์ต `PORT` (8080)** — ไม่ใช่ `vite dev`
 
 ```bash
-# จากโฟลเดอร์โปรเจกต์ (ใช้ Dockerfile ใน repo)
+# จากโฟลเดอร์โปรเจกต์ (ใช้ Dockerfile + server.mjs proxy)
 gcloud run deploy chatbot-autotest-rid4 \
   --source . \
   --region asia-southeast1 \
   --allow-unauthenticated \
-  --set-build-env-vars VITE_ANTHROPIC_API_KEY=sk-ant-xxxxx
+  --set-env-vars ANTHROPIC_API_KEY=sk-ant-xxxxx
 ```
 
-- `VITE_*` ถูก bake ตอน **build** — ต้องส่งผ่าน `--set-build-env-vars` (หรือ Secret ใน Cloud Build)
-- ถ้า deploy แบบ buildpack โดยไม่มี Dockerfile: ต้องมี `npm run build` แล้ว `npm start` (มีใน `package.json` แล้ว)
-- Container ต้อง bind `0.0.0.0` ไม่ใช่ `127.0.0.1` เท่านั้น
+- เรียก Anthropic ผ่าน **`/api/anthropic`** บน server (ไม่เรียกตรงจาก browser — หลีกเลี่ยง CORS)
+- ใส่ `ANTHROPIC_API_KEY` เป็น **runtime env** บน Cloud Run (ไม่ต้อง bake ใน bundle)
 
 ทดสอบ local แบบเดียวกับ Cloud Run:
 
 ```bash
-npm run build && PORT=8080 npm start
+npm run build
+ANTHROPIC_API_KEY=sk-ant-xxxxx PORT=8080 npm start
 ```
+
+Dev (`npm run dev`): ใส่ `VITE_ANTHROPIC_API_KEY` ใน `.env` — Vite proxy ส่ง key ให้ Anthropic
 
 ---
 

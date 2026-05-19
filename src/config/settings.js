@@ -38,6 +38,19 @@ export const TEST_DEFAULTS = {
   accuracyMinScore: 0.5,
 }
 
-// Anthropic key สำหรับสร้างคำถาม + AI Judge (ใส่ใน .env)
+// เรียกผ่าน proxy เดียวกับ origin — หลีกเลี่ยง CORS (dev: Vite proxy, prod: server.mjs)
+export const ANTHROPIC_MESSAGES_URL = '/api/anthropic/v1/messages'
+/** ใช้ตรวจว่ามี key ใน .env สำหรับ dev proxy (prod ใช้ ANTHROPIC_API_KEY บน server) */
 export const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || ''
 export const JUDGE_MODEL = 'claude-sonnet-4-20250514'
+
+export function getAnthropicHeaders() {
+  const headers = {
+    'Content-Type': 'application/json',
+    'anthropic-version': '2023-06-01',
+  }
+  // dev: ส่ง key จาก .env ผ่าน proxy (Vite ไม่ฝังใน proxy config เสมอ)
+  const key = (import.meta.env.VITE_ANTHROPIC_API_KEY || '').trim()
+  if (key) headers['x-api-key'] = key
+  return headers
+}

@@ -1,10 +1,24 @@
 // utils/questionGenerator.js
-import { ANTHROPIC_KEY, JUDGE_MODEL } from '../config/settings.js'
+import { ANTHROPIC_MESSAGES_URL, getAnthropicHeaders, JUDGE_MODEL } from '../config/settings.js'
 import {
   getMandatoryQuestions,
   getStandardPool,
   RID4_PROVINCES_LABEL,
 } from '../data/standardQuestions.js'
+
+async function callAnthropicMessages(body, signal) {
+  const res = await fetch(ANTHROPIC_MESSAGES_URL, {
+    method: 'POST',
+    headers: getAnthropicHeaders(),
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`Anthropic API ${res.status}: ${errText.slice(0, 200)}`)
+  }
+  return res.json()
+}
 
 const DB_SCHEMA = `
 ตาราง: v_trans_all — ข้อมูล real-time จากสถานีวัดน้ำและอ่างเก็บน้ำ
@@ -198,17 +212,12 @@ keyPoints: ["การพัฒนาแหล่งน้ำ เขื่อน
 
   const mandatory = pickMandatoryQuestions(nMandatory)
 
-  if (!ANTHROPIC_KEY) {
-    return mergeQuestionSets(mandatory, fallbackGeneratedQuestions(nGeneral, nDatabase))
-  }
-
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: JUDGE_MODEL, max_tokens: 8000, messages: [{ role: 'user', content: prompt }] }),
+    const data = await callAnthropicMessages({
+      model: JUDGE_MODEL,
+      max_tokens: 8000,
+      messages: [{ role: 'user', content: prompt }],
     })
-    const data = await res.json()
     const raw = data.content?.map(c => c.text || '').join('') || ''
     const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim())
     const generated = parsed.filter(q => q.type !== 'mandatory')
@@ -224,10 +233,6 @@ keyPoints: ["การพัฒนาแหล่งน้ำ เขื่อน
 export async function judgeAnswerAgainstReference(question, answer) {
   const { referenceAnswer, keyPoints } = question
   const points = keyPoints?.length ? keyPoints : inferKeyPoints(referenceAnswer)
-
-  if (!ANTHROPIC_KEY) {
-    return heuristicContentJudge(answer, referenceAnswer, points, question)
-  }
 
   const pointsList = points.map((p, i) => `${i + 1}. ${p}`).join('\n')
 
@@ -264,13 +269,10 @@ ${pointsList}
   const judgeTimer = setTimeout(() => judgeController.abort(), 45_000)
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: JUDGE_MODEL, max_tokens: 400, messages: [{ role: 'user', content: prompt }] }),
-      signal: judgeController.signal,
-    })
-    const data = await res.json()
+    const data = await callAnthropicMessages(
+      { model: JUDGE_MODEL, max_tokens: 400, messages: [{ role: 'user', content: prompt }] },
+      judgeController.signal,
+    )
     const raw = data.content?.map(c => c.text || '').join('') || ''
     const j = JSON.parse(raw.replace(/```json|```/g, '').trim())
     const score = Math.min(1, Math.max(0, Number(j.accuracy_score) || 0))
@@ -328,11 +330,14 @@ function heuristicContentJudge(answer, referenceAnswer, keyPoints, question = {}
       'คำตอบไม่สมบูรณ์ (ขอข้อมูลเพิ่มแทนการตอบ) ไม่ถือว่าผ่าน',
     )
   }
-
+  // console.log(keyPoints)
+  // console.log(import.meta.env.VITE_ANTHROPIC_API_KEY);
   const covered = []
   const missed = []
   for (const p of keyPoints) {
-    const tokens = p.toLowerCase().split(/\s+/).filter(w => w.length > 3).slice(0, 4)
+    // console.log(p)
+    const tokens = p.toLowerCase().split(/\s+/).filter(w => w.length > 1).slice(0, 4)
+    // console.log(tokens)
     const hit = tokens.length ? tokens.filter(t => a.includes(t)).length / tokens.length >= 0.4 : false
     if (hit) covered.push(p)
     else missed.push(p)
