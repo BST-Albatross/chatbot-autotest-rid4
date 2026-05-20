@@ -13,6 +13,7 @@
 import mandatoryCsv from './csv/mandatory.csv?raw'
 import generalCsv from './csv/general.csv?raw'
 import databaseCsv from './csv/database.csv?raw'
+import simsatCsv from './csv/simsat.csv?raw'
 
 /** จังหวัดในพื้นที่รับผิดชอบ สำนักชลประทานที่ 4 */
 export const RID4_PROVINCES = ['กำแพงเพชร', 'แพร่', 'ตาก', 'สุโขทัย']
@@ -109,11 +110,17 @@ function loadCsvQuestions(csvText, type) {
 const _mandatory = loadCsvQuestions(mandatoryCsv, 'mandatory')
 const _general = loadCsvQuestions(generalCsv, 'general')
 const _database = loadCsvQuestions(databaseCsv, 'database')
+const _simsat = loadCsvQuestions(simsatCsv, 'database').map(q => ({
+  ...q,
+  // tag for UI/filtering if needed later (non-breaking)
+  dataset: 'simsat',
+}))
 
 export const STANDARD_QUESTIONS = {
   mandatory: _mandatory,
   general: _general,
   database: _database,
+  simsat: _simsat,
 }
 
 export const MANDATORY_COUNT = _mandatory.length

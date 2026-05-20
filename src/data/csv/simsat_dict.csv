@@ -1,0 +1,16 @@
+﻿column_name,data_type,description
+start_date,date,วันที่เริ่มรอบการวิเคราะห์
+end_date,date,วันที่จบรอบการวิเคราะห์
+farmplot_batch_id,varchar,id ของแปลงพื้นที่
+plot_name,varchar,ชื่อแปลงพื้นที่
+rid_area_rai,numeric,พื้นที่ตามข้อมูล RID (ไร่)
+analysis_area_rai,float8,พื้นที่ที่ใช้ในการวิเคราะห์ (ไร่)
+ldd_area_rai,int4,พื้นที่ตามข้อมูล LDD (ไร่)
+total_wn_efficiency_4crop_pspa,float8,ปริมาณการใช้น้ำรวม 4 ประเภททั้งหมด (ลบ.ม./วินาที) - รวมประสิทธิภาพชลประทาน
+total_wn_forecast_4crop_next7_pspa,float8,ปริมาณการใช้น้ำรวม 4 ประเภททั้งหมด - 7 วันข้างหน้า (ลบ.ม./วินาที)
+total_wn_forecast_4crop_next14_pspa,float8,ปริมาณการใช้น้ำรวม 4 ประเภททั้งหมด - 14 วันข้างหน้า (ลบ.ม./วินาที)
+area_rice_rai,float8,พื้นที่ข้าว (ไร่)
+area_maize_rai,float8,พื้นที่ข้าวโพด (ไร่)
+area_cassava_rai,float8,พื้นที่มันสำปะหลัง (ไร่)
+area_sugarcane_rai,float8,พื้นที่อ้อย (ไร่)
+coords,uuid,พิกัดของแปลง
