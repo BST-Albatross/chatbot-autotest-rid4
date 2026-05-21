@@ -6,31 +6,134 @@ function typeLabel(type) {
   return 'ทั่วไป'
 }
 
+function q(val) {
+  return `"${String(val ?? '').replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`
+}
+
 export function exportCSV(results) {
   const header = [
-    'ID', 'ประเภท', 'คำถาม', 'แนวทางคำตอบ', 'คะแนนความถูกต้อง', 'ผ่านเกณฑ์',
-    'เหตุผลความถูกต้อง', 'ประเด็นที่ครอบคลุม', 'ประเด็นที่ขาด',
-    'เวลา(s)', 'ระดับเวลา', 'สอดคล้อง', 'จำนวน words', 'ความยาว', 'คะแนน', 'ผลรวม',
+    'ID', 'ประเภท', 'คำถาม',
+    'แนวทางคำตอบ', 'คำตอบจากแชต',
+    // ด้านความถูกต้อง
+    'ความถูกต้อง_ผล', 'ความถูกต้อง_คะแนน(0-1)', 'ความถูกต้อง_เหตุผล',
+    'ประเด็นที่ครอบคลุม', 'ประเด็นที่ขาด',
+    // ด้านความเร็ว
+    'เวลา_ผล', 'เวลา(s)', 'เวลา_รายละเอียด',
+    // ด้านความสอดคล้อง
+    'ความสอดคล้อง_ผล', 'ความสอดคล้อง_เหตุผล',
+    // ด้านความยาว
+    'ความยาว_ผล', 'จำนวน_words',
+    // สรุป
+    'คะแนนรวม(0-4)', 'ผลรวม',
   ]
+
   const rows = results.map(r => [
     r.id,
     typeLabel(r.type),
-    `"${r.text.replace(/"/g, '""')}"`,
-    `"${(r.referenceAnswer || '').replace(/"/g, '""')}"`,
-    r.accuracyScore ?? '',
+    q(r.text),
+    q(r.referenceAnswer),
+    q(r.answer),
+    // ความถูกต้อง
     r.accuracy === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน',
-    `"${(r.accuracyReason || '').replace(/"/g, '""')}"`,
-    `"${(r.coveredPoints || []).join('; ').replace(/"/g, '""')}"`,
-    `"${(r.missedPoints || []).join('; ').replace(/"/g, '""')}"`,
+    r.accuracyScore ?? '',
+    q(r.accuracyReason),
+    q((r.coveredPoints || []).join(' | ')),
+    q((r.missedPoints || []).join(' | ')),
+    // ความเร็ว
+    r.speedScore === 'pass' ? 'ผ่าน' : r.speedScore === 'warn' ? 'เตือน' : 'ไม่ผ่าน',
     r.elapsed,
-    r.speedLabel,
+    q(r.speedLabel),
+    // ความสอดคล้อง
     r.consistency === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน',
-    r.wordCount,
+    q(r.consistencyReason),
+    // ความยาว
     r.lengthScore === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน',
+    r.wordCount,
+    // สรุป
     `${r.score}/4`,
     r.overall === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน',
   ])
-  dl('\uFEFF' + [header, ...rows].map(r => r.join(',')).join('\n'), `test_${ds()}.csv`, 'text/csv;charset=utf-8')
+
+  dl('﻿' + [header, ...rows].map(r => r.join(',')).join('\n'), `test_${ds()}.csv`, 'text/csv;charset=utf-8')
+}
+
+function parseTypeTh(label) {
+  if (label === 'บังคับ') return 'mandatory'
+  if (label === 'Database') return 'database'
+  return 'general'
+}
+
+function parseCsvText(text) {
+  const rows = []
+  let row = [], field = '', inQ = false
+  const src = text.replace(/^﻿/, '')
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]
+    if (inQ) {
+      if (c === '"' && src[i + 1] === '"') { field += '"'; i++ }
+      else if (c === '"') inQ = false
+      else field += c
+    } else if (c === '"') {
+      inQ = true
+    } else if (c === ',') {
+      row.push(field); field = ''
+    } else if (c === '\n' || (c === '\r' && src[i + 1] === '\n')) {
+      if (c === '\r') i++
+      row.push(field); field = ''
+      if (row.some(f => f.trim())) rows.push(row)
+      row = []
+    } else {
+      field += c
+    }
+  }
+  if (field || row.length) { row.push(field); if (row.some(f => f.trim())) rows.push(row) }
+  return rows
+}
+
+export function importQuestionsCSV(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = e => {
+      try {
+        const rows = parseCsvText(e.target.result)
+        if (rows.length < 2) return reject(new Error('ไฟล์ว่างหรือไม่มีข้อมูล'))
+        const headers = rows[0].map(h => h.trim())
+        const idxText = headers.indexOf('คำถาม')
+        const idxRef  = headers.indexOf('แนวทางคำตอบ')
+        const idxType = headers.indexOf('ประเภท')
+        const idxKP   = headers.indexOf('ประเด็นสำคัญ')
+        if (idxText < 0 || idxRef < 0) return reject(new Error('ไม่พบคอลัมน์ "คำถาม" หรือ "แนวทางคำตอบ"'))
+        const questions = rows.slice(1)
+          .filter(r => r[idxText]?.trim())
+          .map((r, i) => ({
+            id: i + 1,
+            text: r[idxText]?.trim() ?? '',
+            type: idxType >= 0 ? parseTypeTh(r[idxType]?.trim()) : 'general',
+            referenceAnswer: r[idxRef]?.trim() ?? '',
+            keyPoints: idxKP >= 0
+              ? r[idxKP].split('|').map(s => s.trim()).filter(Boolean)
+              : [],
+          }))
+        resolve(questions)
+      } catch (err) {
+        reject(err)
+      }
+    }
+    reader.onerror = () => reject(new Error('อ่านไฟล์ไม่ได้'))
+    reader.readAsText(file, 'utf-8')
+  })
+}
+
+export function exportQuestionsCSV(questions) {
+  const header = ['ID', 'ประเภท', 'คำถาม', 'แนวทางคำตอบ', 'ประเด็นสำคัญ']
+  const rows = questions.map(item => [
+    item.id,
+    typeLabel(item.type),
+    q(item.text),
+    q(item.referenceAnswer),
+    q((item.keyPoints || []).join(' | ')),
+  ])
+  dl('﻿' + [header, ...rows].map(r => r.join(',')).join('\n'), `questions_${ds()}.csv`, 'text/csv;charset=utf-8')
 }
 
 export function exportJSON(results) {

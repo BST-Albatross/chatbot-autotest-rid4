@@ -74,6 +74,7 @@ export default function App() {
             questions={questions}
             onGoRun={() => setTab('run')}
             onResetQuestions={handleResetQuestions}
+            onImportQuestions={qs => setQuestions(qs)}
           />
         )}
         {tab === 'run' && (

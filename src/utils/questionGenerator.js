@@ -220,97 +220,229 @@ function countDataset(items, dataset) {
   return n;
 }
 
+const GENERAL_BATCH_SIZE = 10;
+const DB_BATCH_SIZE = 10;
+
+// --- Deduplication store shared across all batches ---
+function createDedupeStore(initialTexts = []) {
+  const seen = new Set(initialTexts.map(normKey));
+  return {
+    isDuplicate: (text) => seen.has(normKey(text)),
+    tryAdd(text) {
+      const k = normKey(text);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    },
+    getTexts: () => [...seen].map((k) => k), // normalized keys as avoid list
+    size: () => seen.size,
+  };
+}
+
+function normKey(text) {
+  return (text || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+    .replace(/[?？。]/g, "");
+}
+
+function logBatchCsv(label, batchIndex, accepted, rejected, totalSoFar) {
+  console.group(
+    `[${label}] Batch ${batchIndex} — ผ่าน ${accepted.length} | ซ้ำ ${rejected.length} | รวม ${totalSoFar} ข้อ`,
+  );
+  console.log("text,type,สถานะ");
+  accepted.forEach((q) =>
+    console.log(`"${q.text}","${q.type || label.toLowerCase()}","✓ ผ่าน"`),
+  );
+  rejected.forEach((q) =>
+    console.log(`"${q.text}","${q.type || label.toLowerCase()}","✗ ซ้ำ (ตัดออก)"`),
+  );
+  console.groupEnd();
+}
+
+// --- General ---
+async function generateGeneralBatch(count, avoidTexts) {
+  const avoidList = avoidTexts.map((t, i) => `${i + 1}. ${t}`).join("\n");
+  const prompt = `คุณคือผู้เชี่ยวชาญระบบชลประทานไทย
+
+สร้างคำถามทดสอบ Chatbot จำนวน ${count} ข้อ ประเภท "general"
+ขอบเขต: ข้อมูลทั่วไปเกี่ยวกับกรมชลประทานและงานชลประทานในประเทศไทย เช่น ประวัติ โครงสร้างองค์กร กฎหมาย บริการ เขื่อน โครงการ สิทธิ์ประชาชน เทคโนโลยี ฯลฯ
+
+กฎ:
+1. แต่ละข้อต้องคนละหัวข้อและคนละแง่มุมกันอย่างสิ้นเชิง ห้ามถามเรื่องเดียวกันในรูปแบบต่างกัน
+2. ห้ามซ้ำกับคำถามต่อไปนี้ที่มีอยู่แล้ว (ทั้งความหมายและหัวข้อ):
+${avoidList}
+
+สำหรับแต่ละข้อ:
+- text: คำถามภาษาไทยเป็นธรรมชาติ
+- referenceAnswer: แนวทางคำตอบที่ถูกต้อง (ย่อหน้าเดียว ครบถ้วน)
+- keyPoints: อาร์เรย์ประเด็นสำคัญ 3–5 ข้อ (ใช้ให้คะแนนสัดส่วน)
+
+ตอบเป็น JSON array เท่านั้น:
+[{"text":"...","type":"general","referenceAnswer":"...","keyPoints":["..."]}]`;
+
+  const data = await callAnthropicMessages({
+    model: JUDGE_MODEL,
+    max_tokens: 20000,
+    messages: [{ role: "user", content: prompt }],
+  });
+  const raw = data.content?.map((c) => c.text || "").join("") || "";
+  return JSON.parse(raw.replace(/```json|```/g, "").trim());
+}
+
+async function generateGeneralQuestions(nGeneral, store) {
+  const allGenerated = [];
+  let batchIndex = 0;
+
+  for (let remaining = nGeneral; remaining > 0; ) {
+    batchIndex++;
+    const batchSize = Math.min(remaining, GENERAL_BATCH_SIZE);
+    try {
+      const batch = await generateGeneralBatch(batchSize, store.getTexts());
+      const valid = batch.filter((q) => q.text && q.referenceAnswer && q.type === "general");
+      const accepted = [];
+      const rejected = [];
+      for (const q of valid) {
+        if (store.tryAdd(q.text)) accepted.push(q);
+        else rejected.push(q);
+      }
+      logBatchCsv("General", batchIndex, accepted, rejected, allGenerated.length + accepted.length);
+      allGenerated.push(...accepted);
+      remaining -= accepted.length > 0 ? accepted.length : batchSize;
+    } catch (err) {
+      console.error(`[General] Batch ${batchIndex} ล้มเหลว:`, err?.message ?? err);
+      break;
+    }
+  }
+
+  console.log(`[General] รวมทั้งหมด ${allGenerated.length}/${nGeneral} ข้อ`);
+  return allGenerated;
+}
+
+// --- Database (batched) ---
+async function generateDatabaseBatch(count, simsatCount, vTransCount, store) {
+  const avoidList = store.getTexts().map((t, i) => `${i + 1}. ${t}`).join("\n");
+  const avoidSection = avoidList
+    ? `\n\nห้ามซ้ำกับคำถามต่อไปนี้ที่มีอยู่แล้ว:\n${avoidList}\n`
+    : "";
+
+  const prompt = `คุณคือผู้เชี่ยวชาญระบบชลประทานไทย สร้างชุดคำถามทดสอบ Chatbot สำนักชลประทานที่ 4
+
+ต้องสร้างคำถามประเภท database รวม ${count} ข้อ โดยแบ่งเป็น:
+- dataset="v_trans_all" จำนวน ${vTransCount} ข้อ (อ่างเก็บน้ำ/สถานีวัดน้ำ ตาม schema ด้านล่าง)
+- dataset="simsat" จำนวน ${simsatCount} ข้อ (dashboard วิเคราะห์การใช้น้ำ/พื้นที่เพาะปลูก ตาม data dict + sample ด้านล่าง)
+
+=== Schema ของ Database ===
+${DB_SCHEMA}
+===========================${avoidSection}
+=== กฎสำคัญสำหรับคำถาม database (ต้องทำตาม) ===
+1. ห้ามสร้างคำถามกว้างๆ ที่บังคับให้ผู้ใช้ระบุจังหวัด/รหัสสถานีก่อนตอบ
+2. แบ่งเป็น 2 แบบ:
+   (A) คำถามเจาะจง ~70% — ระบุจังหวัดในพื้นที่ สชป.4 (${RID4_PROVINCES}) หรือชื่อ/รหัสสถานี หรืออ่างเก็บน้ำ
+   (B) คำถามสรุป/เปรียบเทียบ ~30% — referenceAnswer ต้องคาดหวังคำตอบสรุปจาก DB ทันที (Top 3 พร้อมค่า)
+3. questionScope: "specific" หรือ "aggregate"
+
+สำหรับแต่ละข้อ ต้องมี: text, referenceAnswer (ย่อหน้าเดียว), keyPoints (3–5 ข้อ)
+
+=== SIMSAT dashboard (dataset="simsat") ===
+Data dictionary:
+${simsatDictCsv}
+Sample data:
+${simsatSampleCsv}
+กฎ simsat: หน่วยต้องตรงกับ data dict, มีทั้งเจาะจงและภาพรวม, ใช้ <ตัวเลข> แทนตัวเลขจริง
+
+ตอบเป็น JSON array เท่านั้น:
+[{"text":"...","type":"database","dataset":"v_trans_all|simsat","referenceAnswer":"...","keyPoints":["..."],"questionScope":"specific|aggregate"}]`;
+
+  const data = await callAnthropicMessages({
+    model: JUDGE_MODEL,
+    max_tokens: 20000,
+    messages: [{ role: "user", content: prompt }],
+  });
+  const raw = data.content?.map((c) => c.text || "").join("") || "";
+  return JSON.parse(raw.replace(/```json|```/g, "").trim());
+}
+
+async function generateDatabaseQuestions(nDatabase, simsatTarget, vTransTarget, store) {
+  const allGenerated = [];
+  let batchIndex = 0;
+  let simsatRemaining = simsatTarget;
+  let vTransRemaining = vTransTarget;
+
+  while (simsatRemaining + vTransRemaining > 0) {
+    batchIndex++;
+    const batchTotal = Math.min(simsatRemaining + vTransRemaining, DB_BATCH_SIZE);
+    const bSimsat = Math.min(simsatRemaining, Math.round(batchTotal * (simsatTarget / nDatabase)));
+    const bVTrans = batchTotal - bSimsat;
+
+    try {
+      const batch = await generateDatabaseBatch(batchTotal, bSimsat, bVTrans, store);
+      const valid = batch.filter((q) => q.text && q.referenceAnswer && q.type === "database");
+      const accepted = [];
+      const rejected = [];
+      for (const q of valid) {
+        if (store.tryAdd(q.text)) {
+          accepted.push(q);
+          if (q.dataset === "simsat") simsatRemaining = Math.max(0, simsatRemaining - 1);
+          else vTransRemaining = Math.max(0, vTransRemaining - 1);
+        } else {
+          rejected.push(q);
+        }
+      }
+      logBatchCsv("Database", batchIndex, accepted, rejected, allGenerated.length + accepted.length);
+      allGenerated.push(...accepted);
+      if (accepted.length === 0) break; // หยุดถ้าไม่มีข้อใหม่
+    } catch (err) {
+      console.error(`[Database] Batch ${batchIndex} ล้มเหลว:`, err?.message ?? err);
+      break;
+    }
+  }
+
+  console.log(`[Database] รวมทั้งหมด ${allGenerated.length}/${nDatabase} ข้อ`);
+  return allGenerated;
+}
+
 export async function generateQuestions(nMandatory, nGeneral, nDatabase) {
   const simsatTarget = Math.max(nDatabase >= 5 ? 1 : 0, Math.round(nDatabase * 0.2));
   const vTransTarget = Math.max(0, nDatabase - simsatTarget);
 
-  const prompt = `คุณคือผู้เชี่ยวชาญระบบชลประทานไทย สร้างชุดคำถามทดสอบ Chatbot สำนักชลประทานที่ 4
-
-ต้องสร้างคำถามประเภท database รวม ${nDatabase} ข้อ โดยแบ่งเป็น:
-- dataset="v_trans_all" จำนวน ${vTransTarget} ข้อ (อ่างเก็บน้ำ/สถานีวัดน้ำ ตาม schema ด้านล่าง)
-- dataset="simsat" จำนวน ${simsatTarget} ข้อ (dashboard วิเคราะห์การใช้น้ำ/พื้นที่เพาะปลูก ตาม data dict + sample ด้านล่าง)
-
-=== Schema ของ Database ===
-${DB_SCHEMA}
-===========================
-
-สร้างคำถาม ${nGeneral} ข้อ ประเภท "general" — องค์กร ภารกิจ บริการ ไม่ใช่ตัวเลขจาก DB
-สร้างคำถาม ${nDatabase} ข้อ ประเภท "database" — ตามสัดส่วน dataset ที่กำหนด
-
-=== กฎสำคัญสำหรับคำถาม database (ต้องทำตาม) ===
-1. ห้ามสร้างคำถามกว้างๆ ที่บังคับให้ผู้ใช้ระบุจังหวัด/รหัสสถานีก่อนตอบ เช่น "ระดับน้ำในพื้นที่เป็นเท่าไร?" โดยไม่ระบุขอบเขต
-2. แบ่งเป็น 2 แบบ:
-   (A) คำถามเจาะจง ~70% — ระบุจังหวัดในพื้นที่สำนักชลประทานที่ 4 (${RID4_PROVINCES}) หรือชื่อ/รหัสสถานี หรือชื่ออ่างเก็บน้ำ
-       ตัวอย่าง: "ระดับน้ำล่าสุดที่สถานีรหัส P.50A เป็นเท่าไร?"
-   (B) คำถามสรุป/เปรียบเทียบ ~30% — ถามแบบกว้างได้ แต่ referenceAnswer ต้องคาดหวังคำตอบสรุปจาก DB ทันที
-       ตัวอย่าง: "สถานีวัดน้ำ Top 3 ที่ระดับน้ำสูงสุดในพื้นที่สำนักชลประทานที่ 4 ตอนนี้คืออะไร"
-       แนวทางคำตอบ: ต้องมี Top 3 พร้อมค่า (ม.) ชื่อสถานี วัน-เวลา — ไม่ใช่แค่ถามย้อนกลับ
-3. questionScope: "specific" หรือ "aggregate" ตามแบบข้อ 2
-
-สำหรับแต่ละข้อ ต้องมี:
-1. text — คำถามภาษาไทย
-2. referenceAnswer — แนวทางคำตอบที่ถูกต้อง (ย่อหน้าเดียว ครบถ้วน)
-3. keyPoints — อาร์เรย์ประเด็นสำคัญแยกข้อ (ใช้ให้คะแนนแบบสัดส่วน แต่ละข้อมีน้ำหนักเท่ากัน รวม 1.0)
-   เช่น 3 ประเด็น → ตอบครบ 1 ประเด็น = 0.33, ครบ 2 = 0.67, ครบ 3 = 1.0
-
-ตัวอย่างรูปแบบ:
-คำถาม: กรมชลประทานมีบทบาทและภารกิจหลักอะไรบ้าง...
-referenceAnswer: กรมชลประทานมีภารกิจหลัก 3 ด้าน ได้แก่ (1) พัฒนาแหล่งน้ำ (2) ส่งน้ำและบำรุงรักษา (3) ป้องกันภัยน้ำ
-keyPoints: ["การพัฒนาแหล่งน้ำ เขื่อน อ่างเก็บน้ำ ฝาย", "การส่งน้ำและบำรุงรักษาให้เกษตรกรและชุมชน", "การป้องกันและบรรเทาภัยอุทกภัยและภัยแล้ง"]
-
-กฎ: ถามเป็นภาษาคนธรรมดา อย่าพูดชื่อ field ตรงๆ, keyPoints ต้องแยกประเด็นชัดเจน 3–5 ข้อ
-
-=== SIMSAT dashboard (dataset="simsat") ===
-ใช้ข้อมูล 2 ส่วนนี้ช่วยเลือก metric/หน่วย/มิติ และทำให้คำถามเป็นธรรมชาติ:
-
-Data dictionary (CSV):
-${simsatDictCsv}
-
-Sample data (CSV — ตัวอย่าง plot_name และช่วงสัปดาห์):
-${simsatSampleCsv}
-
-กฎสำหรับ dataset="simsat":
-- ต้องถามจาก dashboard วิเคราะห์ (simsat) เช่น พื้นที่เพาะปลูก (ไร่) หรือปริมาณการใช้น้ำ ตาม data dict — **หน่วยต้องตรงกับคอลัมน์ใน data dict เท่านั้น** (เช่น total_wn_efficiency_4crop_pspa / total_wn_forecast_4crop_next7_pspa / total_wn_forecast_4crop_next14_pspa ใช้ **ลบ.ม./วินาที** ไม่ใช่ ลบ.ม./วัน)
-- มีทั้ง "คำถามเจาะจง" (ระบุชื่อโครงการ/พื้นที่จาก sample เช่น "โครงการชลประทานกำแพงเพชร") และ "คำถามภาพรวม" (Top 3 หรือสรุปภาพรวม)
-- ให้มิติเวลาแบบธรรมชาติ เช่น "สัปดาห์ล่าสุด" / "สัปดาห์ก่อน" (อ้างอิงช่วงวันที่จาก sample) หรือ "เทียบสัปดาห์ก่อนกับสัปดาห์ล่าสุด"
-- referenceAnswer ต้องมีคำที่เกี่ยวข้องกับคำถาม (เช่น ถ้าถามสัปดาห์ก่อน ต้องมีคำว่า "สัปดาห์ก่อน") และหน่วยต้องตรงกับ metric ในคำถาม
-- ตัวเลขไม่ต้องจริง ให้ใช้ placeholder เช่น "<ตัวเลข> ไร่" หรือ "<ตัวเลข> ลบ.ม./วินาที"
-
-ตอบเป็น JSON array เท่านั้น:
-[{"text":"...","type":"database","dataset":"v_trans_all|simsat","referenceAnswer":"...","keyPoints":["..."],"questionScope":"specific|aggregate"},...]`;
-
   const mandatory = pickMandatoryQuestions(nMandatory);
 
+  // store เริ่มด้วยคำถาม mandatory ทั้งหมด — ทั้ง general และ database จะไม่ซ้ำกับ mandatory และกันเอง
+  const store = createDedupeStore(mandatory.map((q) => q.text));
+  console.log(`[DedupeStore] เริ่มต้นด้วย ${store.size()} คำถาม mandatory`);
+
+  // --- General (batched) ---
+  let generalQuestions = [];
   try {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const extra =
-        attempt === 0
-          ? ""
-          : `\n\nสำคัญ: รอบก่อนสัดส่วน dataset ไม่ครบตามกำหนด กรุณาสร้างใหม่ให้ได้ dataset="simsat" ${simsatTarget} ข้อ และ dataset="v_trans_all" ${vTransTarget} ข้อ แบบเคร่งครัด`;
-
-      const data = await callAnthropicMessages({
-        model: JUDGE_MODEL,
-        max_tokens: 9000,
-        messages: [{ role: "user", content: prompt + extra }],
-      });
-      const raw = data.content?.map((c) => c.text || "").join("") || "";
-      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
-      const generated = parsed.filter((q) => q.type !== "mandatory");
-
-      const db = generated.filter((q) => q.type === "database");
-      const simsatN = countDataset(db, "simsat");
-      const vTransN = countDataset(db, "v_trans_all");
-      if (simsatN >= simsatTarget && vTransN >= vTransTarget) {
-        return mergeQuestionSets(mandatory, generated);
-      }
-    }
-    throw new Error("AI generated questions but dataset ratio not satisfied");
+    generalQuestions = await generateGeneralQuestions(nGeneral, store);
   } catch {
-    return mergeQuestionSets(
-      mandatory,
-      fallbackGeneratedQuestions(nGeneral, nDatabase),
-    );
+    generalQuestions = [];
   }
+  if (generalQuestions.length < nGeneral) {
+    const fallback = fallbackGeneratedQuestions(nGeneral - generalQuestions.length, 0)
+      .filter((q) => q.type === "general" && store.tryAdd(q.text));
+    generalQuestions = [...generalQuestions, ...fallback];
+  }
+
+  // --- Database (batched) ---
+  let dbQuestions = [];
+  try {
+    dbQuestions = await generateDatabaseQuestions(nDatabase, simsatTarget, vTransTarget, store);
+  } catch {
+    dbQuestions = [];
+  }
+  if (dbQuestions.length < nDatabase) {
+    const fallback = fallbackGeneratedQuestions(0, nDatabase - dbQuestions.length)
+      .filter((q) => q.type === "database" && store.tryAdd(q.text));
+    dbQuestions = [...dbQuestions, ...fallback];
+  }
+
+  console.log(
+    `[generateQuestions] สรุป: mandatory=${mandatory.length}, general=${generalQuestions.length}, database=${dbQuestions.length}`,
+  );
+  return mergeQuestionSets(mandatory, [...generalQuestions, ...dbQuestions]);
 }
 
 // ====================================================
@@ -360,7 +492,7 @@ ${pointsList}
     const data = await callAnthropicMessages(
       {
         model: JUDGE_MODEL,
-        max_tokens: 400,
+        max_tokens: 20000,
         messages: [{ role: "user", content: prompt }],
       },
       judgeController.signal,
