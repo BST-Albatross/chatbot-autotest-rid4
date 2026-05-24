@@ -44,16 +44,18 @@ npm run build
 แอปเป็น static SPA ต้อง **serve ไฟล์ใน `dist/` และฟังพอร์ต `PORT` (8080)** — ไม่ใช่ `vite dev`
 
 ```bash
-# จากโฟลเดอร์โปรเจกต์ (ใช้ Dockerfile + server.mjs proxy)
+# จากโฟลเดอร์โปรเจกต์ (Dockerfile ต้องมี server.mjs + dataStore.mjs + dist)
 gcloud run deploy chatbot-autotest-rid4 \
   --source . \
   --region asia-southeast1 \
   --allow-unauthenticated \
-  --set-env-vars ANTHROPIC_API_KEY=sk-ant-xxxxx
+  --set-env-vars "ANTHROPIC_API_KEY=sk-ant-xxxxx,OPENROUTER_API_KEY=sk-or-xxxxx,DEFAULT_DIFY_API_KEY=app-xxxxx"
 ```
 
-- เรียก Anthropic ผ่าน **`/api/anthropic`** บน server (ไม่เรียกตรงจาก browser — หลีกเลี่ยง CORS)
-- ใส่ `ANTHROPIC_API_KEY` เป็น **runtime env** บน Cloud Run (ไม่ต้อง bake ใน bundle)
+- เรียก LLM ผ่าน proxy บน server (`/api/anthropic`, `/api/openrouter`) — หลีกเลี่ยง CORS
+- ใส่ API keys เป็น **runtime env** บน Cloud Run (ไม่ bake ใน bundle)
+- บันทึกผล/คำถามใน `data/` ภายใน container (หายเมื่อ redeploy — ใช้ local dev ถ้าต้องการเก็บถาวร)
+- ตรวจสุขภาพ: `GET /health` → `ok`
 
 ทดสอบ local แบบเดียวกับ Cloud Run:
 

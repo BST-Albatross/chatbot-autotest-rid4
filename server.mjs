@@ -109,6 +109,12 @@ function serveStatic(req, res) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    const pathOnly = req.url?.split('?')[0]
+    if (req.method === 'GET' && (pathOnly === '/health' || pathOnly === '/healthz')) {
+      res.writeHead(200, { 'Content-Type': 'text/plain' })
+      res.end('ok')
+      return
+    }
     if (req.method === 'POST' && req.url === '/api/anthropic/v1/messages') {
       return proxyAnthropic(res, await readBody(req))
     }
@@ -134,4 +140,14 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Listening on http://0.0.0.0:${PORT}`)
   console.log(`Anthropic proxy: ${ANTHROPIC_KEY ? 'on' : 'off'}`)
   console.log(`OpenRouter proxy: ${OPENROUTER_KEY ? 'on' : 'off'}`)
+  console.log(`Static dist: ${fs.existsSync(DIST) ? 'ok' : 'MISSING'}`)
+})
+
+process.on('uncaughtException', err => {
+  console.error('[fatal]', err)
+  process.exit(1)
+})
+process.on('unhandledRejection', err => {
+  console.error('[fatal]', err)
+  process.exit(1)
 })
