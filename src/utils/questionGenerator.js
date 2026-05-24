@@ -2,8 +2,21 @@
 import {
   ANTHROPIC_MESSAGES_URL,
   getAnthropicHeaders,
+  getOpenRouterHeaders,
   JUDGE_MODEL,
+  formatJudgeModelLabel,
+  JUDGE_ENABLE_HEURISTIC,
+  JUDGE_OPENROUTER_MODELS,
+  OPENROUTER_CHAT_URL,
 } from "../config/settings.js";
+
+function attachJudgeMeta(result, modelId) {
+  return {
+    ...result,
+    judgeModel: modelId,
+    judgeModelLabel: formatJudgeModelLabel(modelId),
+  };
+}
 import {
   getMandatoryQuestions,
   getStandardPool,
@@ -24,6 +37,84 @@ async function callAnthropicMessages(body, signal) {
     throw new Error(`Anthropic API ${res.status}: ${errText.slice(0, 200)}`);
   }
   return res.json();
+}
+
+function extractOpenRouterText(data) {
+  const msg = data?.choices?.[0]?.message;
+  if (!msg) return "";
+
+  const parts = [];
+  const push = (v) => {
+    if (typeof v === "string" && v.trim()) parts.push(v.trim());
+  };
+
+  push(msg.content);
+  if (Array.isArray(msg.content)) {
+    for (const block of msg.content) {
+      if (typeof block === "string") push(block);
+      else if (block?.type === "text") push(block.text);
+    }
+  }
+  // โมเดล reasoning (Kimi/GLM) อาจใส่ JSON ใน reasoning แทน content
+  push(msg.reasoning);
+
+  return parts.join("\n");
+}
+
+function parseJudgeJson(raw) {
+  const cleaned = String(raw)
+    .replace(/```json\s*|```/gi, "")
+    .trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error("invalid judge JSON");
+  }
+}
+
+async function callOpenRouterChat(body, signal) {
+  const res = await fetch(OPENROUTER_CHAT_URL, {
+    method: "POST",
+    headers: getOpenRouterHeaders(),
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`OpenRouter ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+/** AI Judge — ลองโมเดลตามลำดับใน JUDGE_OPENROUTER_MODELS */
+async function callOpenRouterJudge(prompt, signal) {
+  let lastError;
+  for (const model of JUDGE_OPENROUTER_MODELS) {
+    try {
+      const data = await callOpenRouterChat(
+        {
+          model,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 1024,
+          temperature: 0.2,
+          reasoning: { effort: "none" },
+        },
+        signal,
+      );
+      const text = extractOpenRouterText(data);
+      if (!text) throw new Error("empty response");
+      console.info(
+        `[Judge] ตรวจคำตอบด้วย ${formatJudgeModelLabel(model)} (${model})`,
+      );
+      return { text, model };
+    } catch (err) {
+      lastError = err;
+      console.warn(`[Judge] ${model} ไม่สำเร็จ:`, err?.message ?? err);
+    }
+  }
+  throw lastError || new Error("OpenRouter judge: ทุกโมเดลล้มเหลว");
 }
 
 const DB_SCHEMA = `
@@ -291,9 +382,11 @@ ${avoidList}
   return JSON.parse(raw.replace(/```json|```/g, "").trim());
 }
 
-async function generateGeneralQuestions(nGeneral, store) {
+async function generateGeneralQuestions(nGeneral, store, hooks = {}) {
+  const { onBatch } = hooks;
   const allGenerated = [];
   let batchIndex = 0;
+  const estimatedBatches = Math.max(1, Math.ceil(nGeneral / GENERAL_BATCH_SIZE));
 
   for (let remaining = nGeneral; remaining > 0; ) {
     batchIndex++;
@@ -310,8 +403,31 @@ async function generateGeneralQuestions(nGeneral, store) {
       logBatchCsv("General", batchIndex, accepted, rejected, allGenerated.length + accepted.length);
       allGenerated.push(...accepted);
       remaining -= accepted.length > 0 ? accepted.length : batchSize;
+      onBatch?.({
+        phase: "general",
+        batchIndex,
+        estimatedBatches,
+        accepted: accepted.length,
+        rejected: rejected.length,
+        cumulative: allGenerated.length,
+        target: nGeneral,
+        questionsSnapshot: [...allGenerated],
+        error: null,
+      });
     } catch (err) {
-      console.error(`[General] Batch ${batchIndex} ล้มเหลว:`, err?.message ?? err);
+      const msg = err?.message ?? String(err);
+      console.error(`[General] Batch ${batchIndex} ล้มเหลว:`, msg);
+      onBatch?.({
+        phase: "general",
+        batchIndex,
+        estimatedBatches,
+        accepted: 0,
+        rejected: 0,
+        cumulative: allGenerated.length,
+        target: nGeneral,
+        questionsSnapshot: [...allGenerated],
+        error: msg,
+      });
       break;
     }
   }
@@ -364,11 +480,13 @@ ${simsatSampleCsv}
   return JSON.parse(raw.replace(/```json|```/g, "").trim());
 }
 
-async function generateDatabaseQuestions(nDatabase, simsatTarget, vTransTarget, store) {
+async function generateDatabaseQuestions(nDatabase, simsatTarget, vTransTarget, store, hooks = {}) {
+  const { onBatch } = hooks;
   const allGenerated = [];
   let batchIndex = 0;
   let simsatRemaining = simsatTarget;
   let vTransRemaining = vTransTarget;
+  const estimatedBatches = Math.max(1, Math.ceil(nDatabase / DB_BATCH_SIZE));
 
   while (simsatRemaining + vTransRemaining > 0) {
     batchIndex++;
@@ -392,9 +510,32 @@ async function generateDatabaseQuestions(nDatabase, simsatTarget, vTransTarget, 
       }
       logBatchCsv("Database", batchIndex, accepted, rejected, allGenerated.length + accepted.length);
       allGenerated.push(...accepted);
-      if (accepted.length === 0) break; // หยุดถ้าไม่มีข้อใหม่
+      onBatch?.({
+        phase: "database",
+        batchIndex,
+        estimatedBatches,
+        accepted: accepted.length,
+        rejected: rejected.length,
+        cumulative: allGenerated.length,
+        target: nDatabase,
+        questionsSnapshot: [...allGenerated],
+        error: null,
+      });
+      if (accepted.length === 0) break;
     } catch (err) {
-      console.error(`[Database] Batch ${batchIndex} ล้มเหลว:`, err?.message ?? err);
+      const msg = err?.message ?? String(err);
+      console.error(`[Database] Batch ${batchIndex} ล้มเหลว:`, msg);
+      onBatch?.({
+        phase: "database",
+        batchIndex,
+        estimatedBatches,
+        accepted: 0,
+        rejected: 0,
+        cumulative: allGenerated.length,
+        target: nDatabase,
+        questionsSnapshot: [...allGenerated],
+        error: msg,
+      });
       break;
     }
   }
@@ -403,46 +544,193 @@ async function generateDatabaseQuestions(nDatabase, simsatTarget, vTransTarget, 
   return allGenerated;
 }
 
-export async function generateQuestions(nMandatory, nGeneral, nDatabase) {
+function buildGenerationReport(targets, counts, errors, usedFallback) {
+  const targetTotal = targets.mandatory + targets.general + targets.database;
+  const total = counts.mandatory + counts.general + counts.database;
+  const complete =
+    counts.mandatory >= targets.mandatory &&
+    counts.general >= targets.general &&
+    counts.database >= targets.database;
+  return {
+    targets,
+    counts,
+    total,
+    targetTotal,
+    complete,
+    errors,
+    usedFallback,
+    finishedAt: new Date().toISOString(),
+  };
+}
+
+export async function generateQuestions(nMandatory, nGeneral, nDatabase, options = {}) {
+  const { onProgress } = options;
+  const targets = {
+    mandatory: Math.max(0, nMandatory),
+    general: Math.max(0, nGeneral),
+    database: Math.max(0, nDatabase),
+  };
+  const counts = { mandatory: 0, general: 0, database: 0 };
+  const errors = [];
+  const usedFallback = { general: false, database: false };
+  let partialQuestions = [];
+
+  const emit = (phase, message, extra = {}) => {
+    const total = counts.mandatory + counts.general + counts.database;
+    const targetTotal = targets.mandatory + targets.general + targets.database;
+    const progress =
+      targetTotal > 0 ? Math.min(100, Math.round((total / targetTotal) * 100)) : 100;
+    onProgress?.({
+      phase,
+      message,
+      targets,
+      counts,
+      total,
+      targetTotal,
+      progress,
+      errors: [...errors],
+      questions: partialQuestions,
+      ...extra,
+    });
+  };
+
   const simsatTarget = Math.max(nDatabase >= 5 ? 1 : 0, Math.round(nDatabase * 0.2));
   const vTransTarget = Math.max(0, nDatabase - simsatTarget);
 
+  emit("mandatory", "กำลังโหลดคำถามบังคับจาก CSV...");
   const mandatory = pickMandatoryQuestions(nMandatory);
+  counts.mandatory = mandatory.length;
+  partialQuestions = mergeQuestionSets(mandatory, []);
+  emit(
+    "mandatory",
+    `คำถามบังคับ ${counts.mandatory}/${targets.mandatory} ข้อ`,
+  );
 
-  // store เริ่มด้วยคำถาม mandatory ทั้งหมด — ทั้ง general และ database จะไม่ซ้ำกับ mandatory และกันเอง
   const store = createDedupeStore(mandatory.map((q) => q.text));
   console.log(`[DedupeStore] เริ่มต้นด้วย ${store.size()} คำถาม mandatory`);
 
-  // --- General (batched) ---
   let generalQuestions = [];
-  try {
-    generalQuestions = await generateGeneralQuestions(nGeneral, store);
-  } catch {
-    generalQuestions = [];
+  if (targets.general > 0) {
+    emit("general", `กำลังสร้างคำถามทั่วไป 0/${targets.general} ข้อ (AI)...`);
+    try {
+      generalQuestions = await generateGeneralQuestions(nGeneral, store, {
+        onBatch: (b) => {
+          counts.general = b.cumulative;
+          partialQuestions = mergeQuestionSets(mandatory, b.questionsSnapshot || []);
+          if (b.error) {
+            errors.push({
+              phase: "general",
+              batch: b.batchIndex,
+              message: b.error,
+            });
+            emit(
+              "general",
+              `ทั่วไป batch ${b.batchIndex} ล้มเหลว — ได้ ${b.cumulative}/${targets.general} ข้อ`,
+              { batch: b },
+            );
+          } else {
+            emit(
+              "general",
+              `ทั่วไป batch ${b.batchIndex}/${b.estimatedBatches} — ได้ ${b.cumulative}/${targets.general} ข้อ (+${b.accepted} ซ้ำตัด ${b.rejected})`,
+              { batch: b },
+            );
+          }
+        },
+      });
+    } catch (err) {
+      const msg = err?.message ?? String(err);
+      errors.push({ phase: "general", batch: 0, message: msg });
+      generalQuestions = [];
+    }
+    counts.general = generalQuestions.length;
+    partialQuestions = mergeQuestionSets(mandatory, generalQuestions);
   }
+
   if (generalQuestions.length < nGeneral) {
+    usedFallback.general = true;
+    emit("general", "ใช้คำถามสำรองเติมทั่วไปที่ยังขาด...");
     const fallback = fallbackGeneratedQuestions(nGeneral - generalQuestions.length, 0)
       .filter((q) => q.type === "general" && store.tryAdd(q.text));
     generalQuestions = [...generalQuestions, ...fallback];
+    counts.general = generalQuestions.length;
+    partialQuestions = mergeQuestionSets(mandatory, generalQuestions);
+    emit(
+      "general",
+      `ทั่วไปรวม ${counts.general}/${targets.general} ข้อ (มีสำรอง)`,
+    );
   }
 
-  // --- Database (batched) ---
   let dbQuestions = [];
-  try {
-    dbQuestions = await generateDatabaseQuestions(nDatabase, simsatTarget, vTransTarget, store);
-  } catch {
-    dbQuestions = [];
+  if (targets.database > 0) {
+    emit("database", `กำลังสร้างคำถาม Database 0/${targets.database} ข้อ (AI)...`);
+    try {
+      dbQuestions = await generateDatabaseQuestions(
+        nDatabase,
+        simsatTarget,
+        vTransTarget,
+        store,
+        {
+          onBatch: (b) => {
+            counts.database = b.cumulative;
+            partialQuestions = mergeQuestionSets(mandatory, [
+              ...generalQuestions,
+              ...(b.questionsSnapshot || []),
+            ]);
+            if (b.error) {
+              errors.push({
+                phase: "database",
+                batch: b.batchIndex,
+                message: b.error,
+              });
+              emit(
+                "database",
+                `Database batch ${b.batchIndex} ล้มเหลว — ได้ ${b.cumulative}/${targets.database} ข้อ`,
+                { batch: b },
+              );
+            } else {
+              emit(
+                "database",
+                `Database batch ${b.batchIndex}/${b.estimatedBatches} — ได้ ${b.cumulative}/${targets.database} ข้อ (+${b.accepted} ซ้ำตัด ${b.rejected})`,
+                { batch: b },
+              );
+            }
+          },
+        },
+      );
+    } catch (err) {
+      const msg = err?.message ?? String(err);
+      errors.push({ phase: "database", batch: 0, message: msg });
+      dbQuestions = [];
+    }
+    counts.database = dbQuestions.length;
+    partialQuestions = mergeQuestionSets(mandatory, [...generalQuestions, ...dbQuestions]);
   }
+
   if (dbQuestions.length < nDatabase) {
+    usedFallback.database = true;
+    emit("database", "ใช้คำถามสำรองเติม Database ที่ยังขาด...");
     const fallback = fallbackGeneratedQuestions(0, nDatabase - dbQuestions.length)
       .filter((q) => q.type === "database" && store.tryAdd(q.text));
     dbQuestions = [...dbQuestions, ...fallback];
+    counts.database = dbQuestions.length;
   }
 
+  const questions = mergeQuestionSets(mandatory, [...generalQuestions, ...dbQuestions]);
+  const report = buildGenerationReport(targets, counts, errors, usedFallback);
+
   console.log(
-    `[generateQuestions] สรุป: mandatory=${mandatory.length}, general=${generalQuestions.length}, database=${dbQuestions.length}`,
+    `[generateQuestions] สรุป: mandatory=${counts.mandatory}, general=${counts.general}, database=${counts.database}`,
   );
-  return mergeQuestionSets(mandatory, [...generalQuestions, ...dbQuestions]);
+
+  emit(
+    "done",
+    report.complete
+      ? `สร้างครบ ${questions.length} ข้อ`
+      : `สร้างได้ ${questions.length}/${report.targetTotal} ข้อ (ไม่ครบเป้า)`,
+    { report, questions },
+  );
+
+  return { questions, report };
 }
 
 // ====================================================
@@ -489,38 +777,55 @@ ${pointsList}
   const judgeTimer = setTimeout(() => judgeController.abort(), 45_000);
 
   try {
-    const data = await callAnthropicMessages(
-      {
-        model: JUDGE_MODEL,
-        max_tokens: 20000,
-        messages: [{ role: "user", content: prompt }],
-      },
+    const { text: raw, model: judgeModel } = await callOpenRouterJudge(
+      prompt,
       judgeController.signal,
     );
-    const raw = data.content?.map((c) => c.text || "").join("") || "";
-    const j = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    const j = parseJudgeJson(raw);
     const score = Math.min(1, Math.max(0, Number(j.accuracy_score) || 0));
-    let result = {
-      accuracyScore: Math.round(score * 100) / 100,
-      coveredPoints: j.covered_points || [],
-      missedPoints: j.missed_points || [],
-      accuracyReason: j.accuracy_reason || "",
-      consistency: j.consistency === "fail" ? "fail" : "pass",
-      consistencyReason: j.consistency_reason || "",
-    };
+    let result = attachJudgeMeta(
+      {
+        accuracyScore: Math.round(score * 100) / 100,
+        coveredPoints: j.covered_points || [],
+        missedPoints: j.missed_points || [],
+        accuracyReason: j.accuracy_reason || "",
+        consistency: j.consistency === "fail" ? "fail" : "pass",
+        consistencyReason: j.consistency_reason || "",
+      },
+      judgeModel,
+    );
     if (isClarificationOnlyResponse(answer, question)) {
-      result = applySubstantiveFailurePenalty(
-        result,
-        points,
-        "ไม่ตอบข้อมูลจากฐานข้อมูล — ถามย้อนกลับให้ระบุจังหวัด/สถานีแทนการสรุปค่าตามแนวทาง",
-        "คำตอบไม่สมบูรณ์ (ขอข้อมูลเพิ่มแทนการตอบ) ไม่ถือว่าผ่าน",
+      result = attachJudgeMeta(
+        applySubstantiveFailurePenalty(
+          result,
+          points,
+          "ไม่ตอบข้อมูลจากฐานข้อมูล — ถามย้อนกลับให้ระบุจังหวัด/สถานีแทนการสรุปค่าตามแนวทาง",
+          "คำตอบไม่สมบูรณ์ (ขอข้อมูลเพิ่มแทนการตอบ) ไม่ถือว่าผ่าน",
+        ),
+        judgeModel,
       );
     } else if (isNoAnswerResponse(answer)) {
-      result = applyNoAnswerPenalty(result, points);
+      result = attachJudgeMeta(applyNoAnswerPenalty(result, points), judgeModel);
     }
     return result;
-  } catch {
-    return heuristicContentJudge(answer, referenceAnswer, points, question);
+  } catch (err) {
+    const msg = err?.message ?? String(err);
+    if (JUDGE_ENABLE_HEURISTIC) {
+      console.warn("[Judge] OpenRouter ล้มเหลว — ใช้ heuristic:", msg);
+      return heuristicContentJudge(answer, referenceAnswer, points, question);
+    }
+    console.warn("[Judge] OpenRouter ล้มเหลว — ไม่ใช้ heuristic:", msg);
+    return attachJudgeMeta(
+      {
+        accuracyScore: 0,
+        coveredPoints: [],
+        missedPoints: points,
+        accuracyReason: `ไม่สามารถตรวจด้วย AI ได้: ${msg}`,
+        consistency: "fail",
+        consistencyReason: "AI Judge ไม่พร้อมใช้งาน (ปิด Heuristic)",
+      },
+      "unavailable",
+    );
   } finally {
     clearTimeout(judgeTimer);
   }
@@ -534,43 +839,52 @@ function heuristicContentJudge(
 ) {
   const a = (answer || "").toLowerCase();
   if (!a || a.length < 8) {
-    return {
-      accuracyScore: 0,
-      coveredPoints: [],
-      missedPoints: keyPoints,
-      accuracyReason: "ไม่มีคำตอบหรือสั้นเกินไป",
-      consistency: "fail",
-      consistencyReason: "ไม่ได้รับคำตอบ",
-    };
-  }
-
-  if (isNoAnswerResponse(answer)) {
-    return applyNoAnswerPenalty(
+    return attachJudgeMeta(
       {
         accuracyScore: 0,
         coveredPoints: [],
         missedPoints: keyPoints,
-        accuracyReason: "",
-        consistency: "pass",
-        consistencyReason: "",
+        accuracyReason: "ไม่มีคำตอบหรือสั้นเกินไป",
+        consistency: "fail",
+        consistencyReason: "ไม่ได้รับคำตอบ",
       },
-      keyPoints,
+      "heuristic",
+    );
+  }
+
+  if (isNoAnswerResponse(answer)) {
+    return attachJudgeMeta(
+      applyNoAnswerPenalty(
+        {
+          accuracyScore: 0,
+          coveredPoints: [],
+          missedPoints: keyPoints,
+          accuracyReason: "",
+          consistency: "pass",
+          consistencyReason: "",
+        },
+        keyPoints,
+      ),
+      "heuristic",
     );
   }
 
   if (isClarificationOnlyResponse(answer, question)) {
-    return applySubstantiveFailurePenalty(
-      {
-        accuracyScore: 0,
-        coveredPoints: [],
-        missedPoints: keyPoints,
-        accuracyReason: "",
-        consistency: "pass",
-        consistencyReason: "",
-      },
-      keyPoints,
-      "ไม่ตอบข้อมูลจากฐานข้อมูล — ถามย้อนกลับให้ระบุจังหวัด/สถานีแทนการสรุปค่าตามแนวทาง (ประเมินอัตโนมัติ)",
-      "คำตอบไม่สมบูรณ์ (ขอข้อมูลเพิ่มแทนการตอบ) ไม่ถือว่าผ่าน",
+    return attachJudgeMeta(
+      applySubstantiveFailurePenalty(
+        {
+          accuracyScore: 0,
+          coveredPoints: [],
+          missedPoints: keyPoints,
+          accuracyReason: "",
+          consistency: "pass",
+          consistencyReason: "",
+        },
+        keyPoints,
+        "ไม่ตอบข้อมูลจากฐานข้อมูล — ถามย้อนกลับให้ระบุจังหวัด/สถานีแทนการสรุปค่าตามแนวทาง (ประเมินอัตโนมัติ)",
+        "คำตอบไม่สมบูรณ์ (ขอข้อมูลเพิ่มแทนการตอบ) ไม่ถือว่าผ่าน",
+      ),
+      "heuristic",
     );
   }
   // console.log(keyPoints)
@@ -602,16 +916,20 @@ function heuristicContentJudge(
     answer,
   );
 
-  return {
-    accuracyScore,
-    coveredPoints: covered,
-    missedPoints: missed,
-    accuracyReason: `ครอบคลุม ${covered.length}/${keyPoints.length} ประเด็น (ประเมินอัตโนมัติ)`,
-    consistency: conflict ? "fail" : "pass",
-    consistencyReason: conflict
-      ? "พบข้อความขัดแย้งในคำตอบ"
-      : "ไม่พบข้อความขัดแย้ง",
-  };
+  console.info("[Judge] ตรวจคำตอบด้วย Heuristic (ในเครื่อง)");
+  return attachJudgeMeta(
+    {
+      accuracyScore,
+      coveredPoints: covered,
+      missedPoints: missed,
+      accuracyReason: `ครอบคลุม ${covered.length}/${keyPoints.length} ประเด็น (ประเมินอัตโนมัติ)`,
+      consistency: conflict ? "fail" : "pass",
+      consistencyReason: conflict
+        ? "พบข้อความขัดแย้งในคำตอบ"
+        : "ไม่พบข้อความขัดแย้ง",
+    },
+    "heuristic",
+  );
 }
 
 const FALLBACK_TEXT_ONLY = {

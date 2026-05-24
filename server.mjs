@@ -1,16 +1,20 @@
 /**
- * Production server: static SPA + Anthropic API proxy (หลีกเลี่ยง CORS)
- * ตั้งค่า ANTHROPIC_API_KEY หรือ VITE_ANTHROPIC_API_KEY บน server (ไม่ฝังใน bundle)
+ * Production: static SPA + LLM proxies (Anthropic สร้างคำถาม, OpenRouter AI Judge)
  */
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { handleDataApi, initDataDirs } from './dataStore.mjs'
+
+initDataDirs()
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(__dirname, 'dist')
 const PORT = Number(process.env.PORT) || 8080
-const API_KEY = process.env.ANTHROPIC_API_KEY || process.env.VITE_ANTHROPIC_API_KEY || ''
+
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || process.env.VITE_ANTHROPIC_API_KEY || ''
+const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || process.env.VITE_OPENROUTER_API_KEY || ''
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -32,33 +36,45 @@ function readBody(req) {
   })
 }
 
-async function proxyAnthropic(req, res, body) {
-  if (!API_KEY) {
+async function proxyAnthropic(res, body) {
+  if (!ANTHROPIC_KEY) {
     res.writeHead(503, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: { message: 'ANTHROPIC_API_KEY not set on server' } }))
     return
   }
+  const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body,
+  })
+  const text = await upstream.text()
+  res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'application/json' })
+  res.end(text)
+}
 
-  try {
-    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body,
-    })
-
-    const text = await upstream.text()
-    res.writeHead(upstream.status, {
-      'Content-Type': upstream.headers.get('content-type') || 'application/json',
-    })
-    res.end(text)
-  } catch (err) {
-    res.writeHead(502, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: { message: err.message } }))
+async function proxyOpenRouter(res, body) {
+  if (!OPENROUTER_KEY) {
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: 'OPENROUTER_API_KEY not set on server' } }))
+    return
   }
+  const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENROUTER_KEY}`,
+      'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER || 'https://chatbot-autotest-rid4',
+      'X-Title': 'chatbot-autotest-rid4',
+    },
+    body,
+  })
+  const text = await upstream.text()
+  res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'application/json' })
+  res.end(text)
 }
 
 function sendFile(res, filePath) {
@@ -74,7 +90,7 @@ function sendFile(res, filePath) {
 }
 
 function serveStatic(req, res) {
-  const urlPath = decodeURIComponent(new URL(req.url, `http://127.0.0.1`).pathname)
+  const urlPath = decodeURIComponent(new URL(req.url, 'http://127.0.0.1').pathname)
   let filePath = path.join(DIST, urlPath === '/' ? 'index.html' : urlPath)
 
   if (!filePath.startsWith(DIST)) {
@@ -92,20 +108,30 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === 'POST' && req.url === '/api/anthropic/v1/messages') {
-    const body = await readBody(req)
-    return proxyAnthropic(req, res, body)
+  try {
+    if (req.method === 'POST' && req.url === '/api/anthropic/v1/messages') {
+      return proxyAnthropic(res, await readBody(req))
+    }
+    if (req.method === 'POST' && req.url === '/api/openrouter/v1/chat/completions') {
+      return proxyOpenRouter(res, await readBody(req))
+    }
+    if (req.url?.startsWith('/api/data/')) {
+      const handled = await handleDataApi(req, res)
+      if (handled) return
+    }
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      return serveStatic(req, res)
+    }
+    res.writeHead(405)
+    res.end('Method not allowed')
+  } catch (err) {
+    res.writeHead(502, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: { message: err.message } }))
   }
-
-  if (req.method === 'GET' || req.method === 'HEAD') {
-    return serveStatic(req, res)
-  }
-
-  res.writeHead(405)
-  res.end('Method not allowed')
 })
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Listening on http://0.0.0.0:${PORT}`)
-  console.log(`Anthropic proxy: ${API_KEY ? 'enabled' : 'disabled (set ANTHROPIC_API_KEY)'}`)
+  console.log(`Anthropic proxy: ${ANTHROPIC_KEY ? 'on' : 'off'}`)
+  console.log(`OpenRouter proxy: ${OPENROUTER_KEY ? 'on' : 'off'}`)
 })

@@ -4,3 +4,7 @@ dist/
 .env.local
 .DS_Store
 *.log
+
+# ผลทดสอบ / ประวัติคำถาม (เก็บในเครื่อง)
+data/checkAnswer/*.json
+data/history/*.json

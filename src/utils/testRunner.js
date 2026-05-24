@@ -23,6 +23,8 @@ export async function evaluateResult(question, response, cfg) {
   let missedPoints = []
   let consistency = 'pass'
   let consistencyReason = ''
+  let judgeModel = null
+  let judgeModelLabel = null
 
   if (!ok) {
     accuracyReason = error || 'ไม่ได้รับคำตอบ'
@@ -36,6 +38,8 @@ export async function evaluateResult(question, response, cfg) {
     missedPoints = j.missedPoints
     consistency = j.consistency
     consistencyReason = j.consistencyReason
+    judgeModel = j.judgeModel ?? null
+    judgeModelLabel = j.judgeModelLabel ?? null
     if (isNonSubstantiveResponse(answer, question)) {
       accuracyScore = 0
       accuracy = 'fail'
@@ -79,6 +83,8 @@ export async function evaluateResult(question, response, cfg) {
     noAnswer,
     overall: !noAnswer && accuracy === 'pass' && passCount >= 3 ? 'pass' : 'fail',
     error: error || null,
+    judgeModel,
+    judgeModelLabel,
   }
 }
 
@@ -127,10 +133,21 @@ function buildErrorResult(question, err, elapsed = 0) {
 }
 
 export async function runTestSuite(questions, difyConfig, testConfig, options = {}) {
-  const { onProgress = () => {}, onResult = () => {}, onLog = () => {}, stopSignal = { stopped: false } } = options
-  const results = []
+  const {
+    onProgress = () => {},
+    onResult = () => {},
+    onLog = () => {},
+    stopSignal = { stopped: false },
+    initialResults = [],
+  } = options
+  const results = [...initialResults]
+  const startIndex = results.length
 
-  for (let i = 0; i < questions.length; i++) {
+  if (startIndex > 0) {
+    onLog(`รันต่อจากข้อ ${startIndex + 1}/${questions.length} (มีผลแล้ว ${startIndex} ข้อ)`, 'info')
+  }
+
+  for (let i = startIndex; i < questions.length; i++) {
     if (stopSignal.stopped) {
       onLog('หยุดโดยผู้ใช้', 'warn')
       break

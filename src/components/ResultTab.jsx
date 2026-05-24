@@ -19,6 +19,19 @@ function AccuracyCell({ score, pass }) {
   return <span className={`${u.badge} ${cls}`}>{score?.toFixed(2) ?? '—'}/1.0 ({pct}%)</span>
 }
 
+function JudgeMethodBadge({ label, modelId }) {
+  if (!label) return <span className={`${u.badge} ${u.bGray}`}>—</span>
+  const cls =
+    modelId === 'unavailable' ? u.bErr
+      : modelId === 'heuristic' ? u.bGray
+        : u.bInfo
+  return (
+    <span className={`${u.badge} ${cls}`} title={modelId || label}>
+      🤖 {label}
+    </span>
+  )
+}
+
 export default function ResultTab({ results }) {
   const [filter, setFilter] = useState('all')
   const [expand, setExpand] = useState(null)
@@ -52,6 +65,7 @@ export default function ResultTab({ results }) {
                 <th>คำถาม</th>
                 <th style={{ width: 56 }}>ประเภท</th>
                 <th style={{ width: 100 }}>ความถูกต้อง</th>
+                <th style={{ width: 130 }}>วิธีตรวจ</th>
                 <th style={{ width: 90 }}>เวลา</th>
                 <th style={{ width: 76 }}>สอดคล้อง</th>
                 <th style={{ width: 76 }}>ความยาว</th>
@@ -71,6 +85,9 @@ export default function ResultTab({ results }) {
                       {r.type === 'mandatory' ? 'บังคับ' : r.type === 'general' ? 'ทั่วไป' : 'DB'}
                     </span></td>
                     <td><AccuracyCell score={r.accuracyScore} pass={r.accuracy === 'pass'} /></td>
+                    <td>
+                      <JudgeMethodBadge label={r.judgeModelLabel} modelId={r.judgeModel} />
+                    </td>
                     <td><ScorCell val={r.speedScore} label={r.speedLabel} /></td>
                     <td><ScorCell val={r.consistency} /></td>
                     <td><ScorCell val={r.lengthScore} label={r.wordCount + 'w'} /></td>
@@ -78,8 +95,21 @@ export default function ResultTab({ results }) {
                   </tr>
                   {expand === r.id && (
                     <tr>
-                      <td colSpan={8} style={{ padding: '8px 12px', background: 'var(--bg-2)' }}>
+                      <td colSpan={9} style={{ padding: '8px 12px', background: 'var(--bg-2)' }}>
                         <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                          <div style={{ marginBottom: 8, padding: '6px 8px', background: 'var(--info-bg)', borderRadius: 6, color: 'var(--info-text)' }}>
+                            <strong>วิธีการตรวจสอบ:</strong>{' '}
+                            {r.judgeModelLabel ? (
+                              <>
+                                {r.judgeModelLabel}
+                                {r.judgeModel && r.judgeModel !== r.judgeModelLabel && (
+                                  <span style={{ opacity: 0.75, marginLeft: 6, fontSize: 11 }}>({r.judgeModel})</span>
+                                )}
+                              </>
+                            ) : (
+                              '— (ยังไม่ได้รัน Judge หรือไม่ได้รับคำตอบจาก Dify)'
+                            )}
+                          </div>
                           {r.referenceAnswer && (
                             <div style={{ marginBottom: 8, padding: '6px 8px', background: 'var(--bg)', borderRadius: 6 }}>
                               <strong>แนวทางคำตอบ:</strong> {r.referenceAnswer}
@@ -107,7 +137,9 @@ export default function ResultTab({ results }) {
             </tbody>
           </table>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 8 }}>💡 คลิกแถวเพื่อดูแนวทางคำตอบ ประเด็นที่ครอบคลุม/ขาด และคำตอบจาก Chatbot</div>
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 8 }}>
+          💡 คลิกแถวเพื่อดูวิธีตรวจสอบ (AI Judge) แนวทางคำตอบ ประเด็นที่ครอบคลุม/ขาด และคำตอบจาก Chatbot
+        </div>
       </div>
     </div>
   )
