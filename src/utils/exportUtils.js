@@ -1,4 +1,5 @@
 // utils/exportUtils.js
+import { parseCsvRows } from './csvParse.js'
 
 function typeLabel(type) {
   if (type === 'mandatory') return 'บังคับ'
@@ -65,39 +66,12 @@ function parseTypeTh(label) {
   return 'general'
 }
 
-function parseCsvText(text) {
-  const rows = []
-  let row = [], field = '', inQ = false
-  const src = text.replace(/^﻿/, '')
-  for (let i = 0; i < src.length; i++) {
-    const c = src[i]
-    if (inQ) {
-      if (c === '"' && src[i + 1] === '"') { field += '"'; i++ }
-      else if (c === '"') inQ = false
-      else field += c
-    } else if (c === '"') {
-      inQ = true
-    } else if (c === ',') {
-      row.push(field); field = ''
-    } else if (c === '\n' || (c === '\r' && src[i + 1] === '\n')) {
-      if (c === '\r') i++
-      row.push(field); field = ''
-      if (row.some(f => f.trim())) rows.push(row)
-      row = []
-    } else {
-      field += c
-    }
-  }
-  if (field || row.length) { row.push(field); if (row.some(f => f.trim())) rows.push(row) }
-  return rows
-}
-
 export function importQuestionsCSV(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = e => {
       try {
-        const rows = parseCsvText(e.target.result)
+        const rows = parseCsvRows(e.target.result)
         if (rows.length < 2) return reject(new Error('ไฟล์ว่างหรือไม่มีข้อมูล'))
         const headers = rows[0].map(h => h.trim())
         const idxText = headers.indexOf('คำถาม')

@@ -225,11 +225,11 @@ export default function ConfigTab({
               value={testConfig.questionCountMandatory}
               onChange={e => setT('questionCountMandatory', +e.target.value)}
               min={0}
-              max={90}
+              max={MANDATORY_COUNT || 999}
               disabled={genState.loading}
             />
             <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-              จาก mandatory.csv (มี {MANDATORY_COUNT} ข้อ) — ใส่ 0 ถ้าไม่ต้องการบังคับ
+              จาก mandatory.csv (มี {MANDATORY_COUNT} ข้อในไฟล์) — ใส่ 0 ถ้าไม่ต้องการบังคับ
             </span>
           </div>
           <div className={u.field}>
