@@ -23,7 +23,6 @@ import {
   RID4_PROVINCES_LABEL,
 } from "../data/standardQuestions.js";
 import simsatDictCsv from "../data/csv/simsat_dict.csv?raw";
-import simsatSampleCsv from "../data/csv/simsat_sample.csv?raw";
 
 async function callAnthropicMessages(body, signal) {
   const res = await fetch(ANTHROPIC_MESSAGES_URL, {
@@ -283,6 +282,31 @@ export function isNonSubstantiveResponse(answer, question) {
   );
 }
 
+/** ตรวจว่าคำตอบมีตัวเลข+หน่วยจริง (แม้จะมีประโยคปฏิเสธปน) */
+export function answerHasData(answer) {
+  const a = (answer || '').replace(/\s+/g, ' ')
+  return /\d+(\.\d+)?\s*(ม\.|เมตร|ลบ\.ม\.|ล้าน\s*ลบ\.ม\.|%|ไร่|ตัน|มม\.)/i.test(a) ||
+    /ระดับน้ำ.{0,30}\d/i.test(a)
+}
+
+/** คำนวณ keyword coverage จาก keyPoints — ใช้เมื่อ AI judge ให้ 0 แต่คำตอบมีคำสำคัญครบ */
+export function computeKeywordScore(answer, keyPoints) {
+  if (!answer || !keyPoints?.length) return { score: 0, covered: [], missed: keyPoints || [] }
+  const a = answer.toLowerCase()
+  const covered = []
+  const missed = []
+  for (const p of keyPoints) {
+    const tokens = p.toLowerCase().split(/\s+/).filter(w => w.length > 1).slice(0, 4)
+    const hit = tokens.length
+      ? tokens.filter(t => a.includes(t)).length / tokens.length >= 0.4
+      : false
+    if (hit) covered.push(p)
+    else missed.push(p)
+  }
+  const score = Math.round((covered.length / keyPoints.length) * 100) / 100
+  return { score, covered, missed }
+}
+
 function inferKeyPoints(referenceAnswer) {
   if (!referenceAnswer)
     return ["ตอบตรงประเด็นคำถาม", "ข้อมูลถูกต้อง", "อธิบายครบถ้วน"];
@@ -464,8 +488,6 @@ ${DB_SCHEMA}
 === SIMSAT dashboard (dataset="simsat") ===
 Data dictionary:
 ${simsatDictCsv}
-Sample data:
-${simsatSampleCsv}
 กฎ simsat: หน่วยต้องตรงกับ data dict, มีทั้งเจาะจงและภาพรวม, ใช้ <ตัวเลข> แทนตัวเลขจริง
 
 ตอบเป็น JSON array เท่านั้น:
@@ -767,8 +789,11 @@ ${pointsList}
 - สำคัญ (database): ถ้าตอบแค่ "ขอข้อมูลเพิ่ม/กรุณาระบุจังหวัดหรือรหัสสถานี" โดยไม่ให้ตัวเลขจาก DB → accuracy_score=0, consistency=fail
 - ถ้าคำถามเป็นแบบสรุป (Top 3 / สูงสุด) คำตอบที่ดีต้องมีตัวเลขและชื่อสถานีจริง ไม่ใช่ถามย้อน
 
-ตรวจความสอดคล้อง (consistency):
-- fail ถ้าข้อความขัดแย้งกันเอง หรือไม่ให้คำตอบจริง (ปฏิเสธ/ไม่พบข้อมูล/ถามย้อนกลับแทนตอบ)
+ตรวจความสอดคล้อง (consistency) — ตรวจเฉพาะความขัดแย้งภายในคำตอบเท่านั้น:
+- fail เฉพาะเมื่อประโยคในคำตอบขัดแย้งกันเอง เช่น บอกระดับน้ำสูงแล้วบอกต่ำในย่อหน้าเดียวกัน
+- pass ถ้าคำตอบสอดคล้องภายใน แม้เนื้อหาจะต่างจากแนวทาง — ความถูกต้องของเนื้อหาอยู่ใน accuracy_score แล้ว
+- ห้าม fail เพราะ "ไม่ตรงแนวทาง" หรือ "ข้อมูลต่างจาก reference" — นั่นคือปัญหา accuracy ไม่ใช่ consistency
+- ตัวอย่าง pass: "ไม่มีข้อมูลรายวัน แต่ข้อมูลรายสัปดาห์คือ 3.12 ลบ.ม./วินาที" → pass เพราะคำตอบสอดคล้องภายใน
 
 ตอบ JSON เท่านั้น:
 {"accuracy_score":0.0,"covered_points":["..."],"missed_points":["..."],"accuracy_reason":"...","consistency":"pass","consistency_reason":"..."}`;
@@ -790,22 +815,54 @@ ${pointsList}
         missedPoints: j.missed_points || [],
         accuracyReason: j.accuracy_reason || "",
         consistency: j.consistency === "fail" ? "fail" : "pass",
+        consistencyScore: j.consistency === "fail" ? 0 : 1,
         consistencyReason: j.consistency_reason || "",
       },
       judgeModel,
     );
     if (isClarificationOnlyResponse(answer, question)) {
-      result = attachJudgeMeta(
-        applySubstantiveFailurePenalty(
-          result,
-          points,
-          "ไม่ตอบข้อมูลจากฐานข้อมูล — ถามย้อนกลับให้ระบุจังหวัด/สถานีแทนการสรุปค่าตามแนวทาง",
-          "คำตอบไม่สมบูรณ์ (ขอข้อมูลเพิ่มแทนการตอบ) ไม่ถือว่าผ่าน",
-        ),
-        judgeModel,
-      );
+      const kw = computeKeywordScore(answer, points)
+      if (kw.score > 0) {
+        result = attachJudgeMeta({
+          ...result,
+          accuracyScore: kw.score,
+          coveredPoints: kw.covered,
+          missedPoints: kw.missed,
+          accuracyReason: `พบ ${kw.covered.length}/${points.length} ประเด็น (คำตอบถามย้อนกลับแทนตอบตรง)`,
+          consistency: 'fail',
+          consistencyScore: 0,
+          consistencyReason: 'ถามย้อนกลับขอข้อมูลเพิ่มแทนการตอบ ไม่ถือว่าผ่าน',
+        }, judgeModel)
+      } else {
+        result = attachJudgeMeta(
+          applySubstantiveFailurePenalty(
+            result,
+            points,
+            "ไม่ตอบข้อมูลจากฐานข้อมูล — ถามย้อนกลับให้ระบุจังหวัด/สถานีแทนการสรุปค่าตามแนวทาง",
+            "คำตอบไม่สมบูรณ์ (ขอข้อมูลเพิ่มแทนการตอบ) ไม่ถือว่าผ่าน",
+          ),
+          judgeModel,
+        )
+      }
     } else if (isNoAnswerResponse(answer)) {
-      result = attachJudgeMeta(applyNoAnswerPenalty(result, points), judgeModel);
+      const kw = computeKeywordScore(answer, points)
+      if (kw.score > 0) {
+        const hasData = answerHasData(answer)
+        result = attachJudgeMeta({
+          ...result,
+          accuracyScore: kw.score,
+          coveredPoints: kw.covered,
+          missedPoints: kw.missed,
+          accuracyReason: `พบ ${kw.covered.length}/${points.length} ประเด็น (แต่มีข้อความ "ไม่พบข้อมูล" ปนอยู่)`,
+          consistency: hasData ? 'pass' : 'fail',
+          consistencyScore: hasData ? 0.5 : 0,
+          consistencyReason: hasData
+            ? 'อธิบายข้อจำกัดข้อมูล แล้วให้ข้อมูลที่มีแทน — สอดคล้องภายใน (0.5)'
+            : 'คำตอบมีข้อความปฏิเสธ "ไม่พบข้อมูล" และไม่มีตัวเลขข้อมูลจริง',
+        }, judgeModel)
+      } else {
+        result = attachJudgeMeta(applyNoAnswerPenalty(result, points), judgeModel)
+      }
     }
     return result;
   } catch (err) {

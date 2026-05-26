@@ -1,6 +1,6 @@
 // utils/testRunner.js
 import { sendToDify } from './difyClient.js'
-import { judgeAnswerAgainstReference, isNonSubstantiveResponse, isClarificationOnlyResponse } from './questionGenerator.js'
+import { judgeAnswerAgainstReference, isNonSubstantiveResponse, isClarificationOnlyResponse, computeKeywordScore, answerHasData } from './questionGenerator.js'
 
 export async function evaluateResult(question, response, cfg) {
   const { elapsed, answer, ok, error } = response
@@ -22,6 +22,7 @@ export async function evaluateResult(question, response, cfg) {
   let coveredPoints = []
   let missedPoints = []
   let consistency = 'pass'
+  let consistencyScore = 1   // 0 | 0.5 | 1
   let consistencyReason = ''
   let judgeModel = null
   let judgeModelLabel = null
@@ -29,6 +30,7 @@ export async function evaluateResult(question, response, cfg) {
   if (!ok) {
     accuracyReason = error || 'ไม่ได้รับคำตอบ'
     consistency = 'fail'
+    consistencyScore = 0
     consistencyReason = 'ไม่ได้รับคำตอบ'
   } else {
     const j = await judgeAnswerAgainstReference(question, answer)
@@ -37,28 +39,70 @@ export async function evaluateResult(question, response, cfg) {
     coveredPoints = j.coveredPoints
     missedPoints = j.missedPoints
     consistency = j.consistency
+    consistencyScore = j.consistencyScore ?? (j.consistency === 'pass' ? 1 : 0)
     consistencyReason = j.consistencyReason
     judgeModel = j.judgeModel ?? null
     judgeModelLabel = j.judgeModelLabel ?? null
+
     if (isNonSubstantiveResponse(answer, question)) {
-      accuracyScore = 0
-      accuracy = 'fail'
-      consistency = 'fail'
-      if (isClarificationOnlyResponse(answer, question)) {
-        accuracyReason = 'ไม่ตอบข้อมูลจากฐานข้อมูล — ถามย้อนกลับให้ระบุจังหวัด/สถานีแทนการสรุปค่าตามแนวทาง'
-        consistencyReason = 'คำตอบไม่สมบูรณ์ (ขอข้อมูลเพิ่มแทนการตอบ) ไม่ถือว่าผ่าน'
-      } else if (!accuracyReason.includes('ไม่ตอบ')) {
-        accuracyReason = 'ไม่ตอบเนื้อหาตามคำถาม — แจ้งว่าไม่พบข้อมูลในระบบแทนการให้คำตอบตามแนวทาง'
-        consistencyReason = 'คำตอบไม่สมบูรณ์ (ปฏิเสธ/ไม่พบข้อมูล) ไม่ถือว่าผ่านแม้ไม่มีข้อความขัดแย้ง'
+      const kw = computeKeywordScore(answer, question.keyPoints)
+      if (kw.score > 0) {
+        accuracyScore = kw.score
+        coveredPoints = kw.covered
+        missedPoints = kw.missed
+        accuracy = accuracyScore >= accuracyMinScore ? 'pass' : 'fail'
+        if (isClarificationOnlyResponse(answer, question)) {
+          consistency = 'fail'
+          consistencyScore = 0
+          accuracyReason = `พบ ${kw.covered.length}/${question.keyPoints?.length || 0} ประเด็น (คำตอบถามย้อนกลับแทนตอบตรง)`
+          consistencyReason = 'ถามย้อนกลับขอข้อมูลเพิ่มแทนการตอบ ไม่ถือว่าผ่าน'
+        } else {
+          accuracyReason = `พบ ${kw.covered.length}/${question.keyPoints?.length || 0} ประเด็น (แต่มีข้อความ "ไม่พบข้อมูล" ปนอยู่)`
+          if (answerHasData(answer)) {
+            consistency = 'pass'
+            consistencyScore = 0.5
+            consistencyReason = 'อธิบายข้อจำกัดข้อมูล แล้วให้ข้อมูลที่มีแทน — สอดคล้องภายใน (0.5)'
+          } else {
+            consistency = 'fail'
+            consistencyScore = 0
+            consistencyReason = 'คำตอบมีข้อความปฏิเสธ "ไม่พบข้อมูล" และไม่มีตัวเลขข้อมูลจริง'
+          }
+        }
+      } else {
+        accuracyScore = 0
+        accuracy = 'fail'
+        consistency = 'fail'
+        consistencyScore = 0
+        if (isClarificationOnlyResponse(answer, question)) {
+          accuracyReason = 'ไม่ตอบข้อมูลจากฐานข้อมูล — ถามย้อนกลับให้ระบุจังหวัด/สถานีแทนการสรุปค่าตามแนวทาง'
+          consistencyReason = 'คำตอบไม่สมบูรณ์ (ขอข้อมูลเพิ่มแทนการตอบ) ไม่ถือว่าผ่าน'
+        } else if (!accuracyReason.includes('ไม่ตอบ')) {
+          accuracyReason = 'ไม่ตอบเนื้อหาตามคำถาม — แจ้งว่าไม่พบข้อมูลในระบบแทนการให้คำตอบตามแนวทาง'
+          consistencyReason = 'คำตอบไม่สมบูรณ์ (ปฏิเสธ/ไม่พบข้อมูล) ไม่ถือว่าผ่านแม้ไม่มีข้อความขัดแย้ง'
+        }
       }
     } else {
+      if (question.keyPoints?.length) {
+        const kw = computeKeywordScore(answer, question.keyPoints)
+        if (kw.score > accuracyScore) {
+          accuracyScore = kw.score
+          coveredPoints = kw.covered
+          missedPoints = kw.missed
+        }
+      }
       accuracy = accuracyScore >= accuracyMinScore ? 'pass' : 'fail'
     }
   }
 
-  const scores = [accuracy, speedScore === 'fail' ? 'fail' : 'pass', consistency, lengthScore]
-  const passCount = scores.filter(s => s === 'pass').length
-  const noAnswer = ok && isNonSubstantiveResponse(answer, question)
+  // score = accuracy(0/1) + speed(0/1) + consistencyScore(0/0.5/1) + length(0/1) — max 4
+  const passCount =
+    (accuracy === 'pass' ? 1 : 0) +
+    (speedScore !== 'fail' ? 1 : 0) +
+    consistencyScore +
+    (lengthScore === 'pass' ? 1 : 0)
+
+  const kwCoverage = computeKeywordScore(answer, question.keyPoints)
+  const noAnswer = ok && isNonSubstantiveResponse(answer, question) && kwCoverage.score === 0
 
   return {
     id: question.id,
@@ -77,11 +121,12 @@ export async function evaluateResult(question, response, cfg) {
     speedScore,
     speedLabel,
     consistency,
+    consistencyScore,
     consistencyReason,
     lengthScore,
     score: passCount,
     noAnswer,
-    overall: !noAnswer && accuracy === 'pass' && passCount >= 3 ? 'pass' : 'fail',
+    overall: !noAnswer && accuracy === 'pass' && passCount >= 2.5 ? 'pass' : 'fail',
     error: error || null,
     judgeModel,
     judgeModelLabel,
@@ -123,6 +168,7 @@ function buildErrorResult(question, err, elapsed = 0) {
     speedScore: 'fail',
     speedLabel: message,
     consistency: 'fail',
+    consistencyScore: 0,
     consistencyReason: message,
     lengthScore: 'fail',
     score: 0,

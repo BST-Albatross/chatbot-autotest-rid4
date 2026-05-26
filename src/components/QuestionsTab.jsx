@@ -1,12 +1,20 @@
 import { useState, useRef } from 'react'
 import u from './ui.module.css'
 import { exportQuestionsCSV, importQuestionsCSV } from '../utils/exportUtils.js'
+import { getStandardPool } from '../data/standardQuestions.js'
 
 export default function QuestionsTab({ questions, onGoRun, onResetQuestions, onImportQuestions }) {
   const [filter, setFilter] = useState('all')
   const [expandId, setExpandId] = useState(null)
   const [importErr, setImportErr] = useState('')
   const fileRef = useRef(null)
+
+  function handleLoadSimsat() {
+    const qs = getStandardPool('simsat').map((q, i) => ({ ...q, id: i + 1 }))
+    if (!qs.length) return setImportErr('ไม่พบคำถาม SIMSAT ใน simsat.csv')
+    setImportErr('')
+    onImportQuestions(qs)
+  }
 
   async function handleImport(e) {
     const file = e.target.files?.[0]
@@ -35,7 +43,8 @@ export default function QuestionsTab({ questions, onGoRun, onResetQuestions, onI
   if (!questions.length) return (
     <div className={u.card}>
       <div className={u.empty}>📋 ยังไม่มีคำถาม — ไปที่แท็บ "ตั้งค่า" แล้วกด "สร้างคำถาม" หรือ import จาก CSV</div>
-      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 12 }}>
+        <button type="button" className={u.btnP} onClick={handleLoadSimsat}>📡 คำถาม SIMSAT</button>
         <button type="button" className={u.btn} onClick={() => fileRef.current?.click()}>⬆️ Import CSV</button>
       </div>
       {importErr && <div style={{ color: 'var(--err-text)', fontSize: 13, marginTop: 8, textAlign: 'center' }}>⚠️ {importErr}</div>}
@@ -49,6 +58,7 @@ export default function QuestionsTab({ questions, onGoRun, onResetQuestions, onI
         <div className={u.secTitle}>คำถามทั้งหมด ({questions.length} ข้อ)</div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button type="button" className={u.btn} onClick={onResetQuestions}>🗑 รีเซ็ตคำถาม</button>
+          <button type="button" className={u.btnP} onClick={handleLoadSimsat}>📡 คำถาม SIMSAT</button>
           <button type="button" className={u.btn} onClick={() => exportQuestionsCSV(questions)}>⬇️ Export CSV</button>
           <button type="button" className={u.btn} onClick={() => fileRef.current?.click()}>⬆️ Import CSV</button>
           <button className={u.btnP} onClick={onGoRun}>▶️ ไปรัน Test →</button>

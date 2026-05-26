@@ -15,8 +15,8 @@ function ScorCell({ val, label }) {
 
 function AccuracyCell({ score, pass }) {
   const pct = Math.round((score ?? 0) * 100)
-  const cls = pass ? u.bOk : score >= 0.3 ? u.bWarn : u.bErr
-  return <span className={`${u.badge} ${cls}`}>{score?.toFixed(2) ?? '—'}/1.0 ({pct}%)</span>
+  const cls = pass ? u.bOk : (score ?? 0) >= 0.3 ? u.bWarn : u.bErr
+  return <span className={`${u.badge} ${cls}`}>{score != null ? `${score.toFixed(1)} (${pct}%)` : '—'}</span>
 }
 
 function JudgeMethodBadge({ label, modelId }) {
@@ -89,7 +89,7 @@ export default function ResultTab({ results }) {
                       <JudgeMethodBadge label={r.judgeModelLabel} modelId={r.judgeModel} />
                     </td>
                     <td><ScorCell val={r.speedScore} label={r.speedLabel} /></td>
-                    <td><ScorCell val={r.consistency} /></td>
+                    <td><ScorCell val={r.consistency} label={r.consistencyScore != null ? r.consistencyScore.toFixed(1) : undefined} /></td>
                     <td><ScorCell val={r.lengthScore} label={r.wordCount + 'w'} /></td>
                     <td><span className={`${u.badge} ${r.overall === 'pass' ? u.bOk : u.bErr}`}>{r.score}/4</span></td>
                   </tr>
