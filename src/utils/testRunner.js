@@ -228,10 +228,23 @@ export async function runTestSuite(questions, difyConfig, testConfig, options = 
       break
     }
 
-    await sleep(80)
+    const isLast = i === questions.length - 1
+    if (!isLast) {
+      const delaySec = testConfig.questionDelay ?? 10
+      onLog(`⏳ รอ ${delaySec}s ก่อนข้อถัดไป...`, 'info')
+      await sleepOrStop(delaySec * 1000, stopSignal)
+    }
   }
 
   return results
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+async function sleepOrStop(ms, stopSignal) {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (stopSignal.stopped) return
+    await sleep(Math.min(100, end - Date.now()))
+  }
+}

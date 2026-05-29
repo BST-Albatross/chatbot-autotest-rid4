@@ -12,19 +12,45 @@ function q(val) {
 }
 
 export function exportCSV(results) {
+  const s = buildSummary(results)
+
+  // --- ส่วนที่ 1: สรุปภาพรวม ---
+  const summaryRows = [
+    ['สรุปผลการทดสอบ', `วันที่ ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}`],
+    [],
+    ['ภาพรวม', '', 'ผลแยกตามประเภทคำถาม'],
+    ['คำถามทั้งหมด', s.total, 'คำถามทั่วไป', `${s.mandatoryPass}/${s.mandatoryTotal}`, `${s.mandatoryTotal ? Math.round(s.mandatoryPass / s.mandatoryTotal * 100) : 0}%`],
+    ['ผ่าน', `${s.pass} (${s.passRate}%)`, 'v_trans_all + SIMSAT', `${s.dbPass}/${s.dbTotal}`, `${s.dbTotal ? Math.round(s.dbPass / s.dbTotal * 100) : 0}%`],
+    ['ไม่ผ่าน', s.fail],
+    ['คะแนนเนื้อหาเฉลี่ย', (s.avgAccuracyScore / 100).toFixed(2) + '/1'],
+    ['เวลาตอบเฉลี่ย', s.avgTime + 's'],
+    ['เร็วสุด', s.minTime + 's'],
+    ['ช้าสุด', s.maxTime + 's'],
+    [],
+    ['ผลแยกตามเกณฑ์ 4 ด้าน'],
+    ['ด้าน', 'ผ่าน', 'ไม่ผ่าน', 'รวม', '% ผ่าน'],
+    ['ความถูกต้อง', s.accuracyPass, s.accuracyFail, s.total, Math.round(s.accuracyPass / s.total * 100) + '%'],
+    ['ความเร็ว (≤20s)', s.speedPass + s.speedWarn, s.speedFail, s.total, Math.round((s.speedPass + s.speedWarn) / s.total * 100) + '%'],
+    ['ความสอดคล้อง', s.consistencyPass, s.consistencyFail, s.total, Math.round(s.consistencyPass / s.total * 100) + '%'],
+    ['ความยาว (≤500w)', s.lengthPass, s.lengthFail, s.total, Math.round(s.lengthPass / s.total * 100) + '%'],
+    [],
+    ['การกระจายตัวความเร็ว'],
+    ['🟢 ≤8s (ดี)', s.speedPass, 'ข้อ'],
+    ['🟡 8–20s (ปานกลาง)', s.speedWarn, 'ข้อ'],
+    ['🔴 >20s (ไม่ผ่าน)', s.speedFail, 'ข้อ'],
+    [],
+    [],
+  ]
+
+  // --- ส่วนที่ 2: ตารางรายข้อ ---
   const header = [
     'ID', 'ประเภท', 'คำถาม',
     'แนวทางคำตอบ', 'คำตอบจากแชต',
-    // ด้านความถูกต้อง
     'ความถูกต้อง_ผล', 'ความถูกต้อง_คะแนน(0-1)', 'วิธีตรวจสอบ', 'รหัสโมเดล', 'ความถูกต้อง_เหตุผล',
     'ประเด็นที่ครอบคลุม', 'ประเด็นที่ขาด',
-    // ด้านความเร็ว
     'เวลา_ผล', 'เวลา(s)', 'เวลา_รายละเอียด',
-    // ด้านความสอดคล้อง
     'ความสอดคล้อง_ผล', 'ความสอดคล้อง_เหตุผล',
-    // ด้านความยาว
     'ความยาว_ผล', 'จำนวน_words',
-    // สรุป
     'คะแนนรวม(0-4)', 'ผลรวม',
   ]
 
@@ -34,7 +60,6 @@ export function exportCSV(results) {
     q(r.text),
     q(r.referenceAnswer),
     q(r.answer),
-    // ความถูกต้อง
     r.accuracy === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน',
     r.accuracyScore ?? '',
     q(r.judgeModelLabel),
@@ -42,22 +67,23 @@ export function exportCSV(results) {
     q(r.accuracyReason),
     q((r.coveredPoints || []).join(' | ')),
     q((r.missedPoints || []).join(' | ')),
-    // ความเร็ว
     r.speedScore === 'pass' ? 'ผ่าน' : r.speedScore === 'warn' ? 'เตือน' : 'ไม่ผ่าน',
     r.elapsed,
     q(r.speedLabel),
-    // ความสอดคล้อง
     r.consistency === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน',
     q(r.consistencyReason),
-    // ความยาว
     r.lengthScore === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน',
     r.wordCount,
-    // สรุป
     `${r.score}/4`,
     r.overall === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน',
   ])
 
-  dl('﻿' + [header, ...rows].map(r => r.join(',')).join('\n'), `test_${ds()}.csv`, 'text/csv;charset=utf-8')
+  const allRows = [
+    ...summaryRows,
+    header,
+    ...rows,
+  ]
+  dl('﻿' + allRows.map(r => r.join(',')).join('\n'), `test_${ds()}.csv`, 'text/csv;charset=utf-8')
 }
 
 function parseTypeTh(label) {
@@ -113,16 +139,28 @@ export function exportQuestionsCSV(questions) {
 }
 
 export function exportJSON(results) {
-  const pass = results.filter(r => r.overall === 'pass').length
+  const s = buildSummary(results)
   const payload = {
     exportedAt: new Date().toISOString(),
     summary: {
-      total: results.length,
-      pass,
-      fail: results.length - pass,
-      passRate: Math.round(pass / results.length * 100) + '%',
-      avgAccuracyScore: avg(results.map(r => r.accuracyScore ?? 0)).toFixed(2),
-      avgResponseTime: avg(results.map(r => r.elapsed)).toFixed(2) + 's',
+      total: s.total,
+      pass: s.pass,
+      fail: s.fail,
+      passRate: s.passRate + '%',
+      avgAccuracyScore: (s.avgAccuracyScore / 100).toFixed(2),
+      avgResponseTime: s.avgTime + 's',
+      minResponseTime: s.minTime + 's',
+      maxResponseTime: s.maxTime + 's',
+      byType: {
+        general: { pass: s.mandatoryPass, total: s.mandatoryTotal },
+        database: { pass: s.dbPass, total: s.dbTotal },
+      },
+      byCriteria: {
+        accuracy: { pass: s.accuracyPass, fail: s.accuracyFail, total: s.total },
+        speed: { pass: s.speedPass, warn: s.speedWarn, fail: s.speedFail, total: s.total },
+        consistency: { pass: s.consistencyPass, fail: s.consistencyFail, total: s.total },
+        length: { pass: s.lengthPass, fail: s.lengthFail, total: s.total },
+      },
     },
     results,
   }
@@ -135,9 +173,9 @@ export function buildSummary(results) {
   const fail = results.length - pass
   const times = results.map(r => r.elapsed)
   const accuracyScores = results.map(r => r.accuracyScore ?? 0)
-  const speedPass = results.filter(r => r.elapsed <= 5).length
-  const speedWarn = results.filter(r => r.elapsed > 5 && r.elapsed <= 10).length
-  const speedFail = results.filter(r => r.elapsed > 10 || r.speedScore === 'fail').length
+  const speedPass = results.filter(r => r.speedScore === 'pass').length
+  const speedWarn = results.filter(r => r.speedScore === 'warn').length
+  const speedFail = results.filter(r => r.speedScore === 'fail').length
   const accuracyPass = results.filter(r => r.accuracy === 'pass').length
   const consistencyPass = results.filter(r => r.consistency === 'pass').length
   const lengthPass = results.filter(r => r.lengthScore === 'pass').length

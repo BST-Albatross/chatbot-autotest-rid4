@@ -65,7 +65,7 @@ export default function SummaryTab({ results, onGoDetail }) {
       <div className={u.card}>
         <div className={u.cardTitle}>🎯 ผลแยกตามเกณฑ์ 4 ด้าน</div>
         <Bar label={`✅ ความถูกต้อง (เฉลี่ย ${(s.avgAccuracyScore / 100).toFixed(2)}/1)`} pass={s.accuracyPass} total={s.total} color="#3b6d11" />
-        <Bar label="⏱ ความเร็ว (≤10s)" pass={s.speedPass + s.speedWarn} total={s.total} color="#185fa5" />
+        <Bar label="⏱ ความเร็ว (≤20s)" pass={s.speedPass + s.speedWarn} total={s.total} color="#185fa5" />
         <Bar label="⚠️ ความสอดคล้อง" pass={s.consistencyPass} total={s.total} color="#854f0b" />
         <Bar label="📏 ความยาว (≤500w)" pass={s.lengthPass} total={s.total} color="#533ab7" />
       </div>
@@ -75,17 +75,12 @@ export default function SummaryTab({ results, onGoDetail }) {
         <div className={u.cardTitle}>🗂 ผลแยกตามประเภทคำถาม</div>
         <div className={u.g3}>
           <div className={u.metric}>
-            <div className={u.mLabel}>⭐ คำถามบังคับ</div>
+            <div className={u.mLabel}>📋 คำถามทั่วไป</div>
             <div className={u.mVal}>{s.mandatoryPass}/{s.mandatoryTotal}</div>
             <div className={u.mSub}>({s.mandatoryTotal ? Math.round(s.mandatoryPass / s.mandatoryTotal * 100) : 0}% ผ่าน)</div>
           </div>
           <div className={u.metric}>
-            <div className={u.mLabel}>📌 คำถามข้อมูลทั่วไป</div>
-            <div className={u.mVal}>{s.generalPass}/{s.generalTotal}</div>
-            <div className={u.mSub}>({s.generalTotal ? Math.round(s.generalPass / s.generalTotal * 100) : 0}% ผ่าน)</div>
-          </div>
-          <div className={u.metric}>
-            <div className={u.mLabel}>🗄 คำถามข้อมูล Database</div>
+            <div className={u.mLabel}>🗄 v_trans_all + SIMSAT</div>
             <div className={u.mVal}>{s.dbPass}/{s.dbTotal}</div>
             <div className={u.mSub}>({s.dbTotal ? Math.round(s.dbPass / s.dbTotal * 100) : 0}% ผ่าน)</div>
           </div>
@@ -97,9 +92,9 @@ export default function SummaryTab({ results, onGoDetail }) {
         <div className={u.cardTitle}>⏱ การกระจายตัวของความเร็ว</div>
         <div className={u.g3}>
           {[
-            ['🟢 ≤ 5s (ดี)', s.speedPass, 'var(--ok-text)'],
-            ['🟡 5–10s (ปานกลาง)', s.speedWarn, 'var(--warn-text)'],
-            ['🔴 > 10s (ไม่ผ่าน)', s.speedFail, 'var(--err-text)'],
+            ['🟢 ≤ 8s (ดี)', s.speedPass, 'var(--ok-text)'],
+            ['🟡 8–20s (ปานกลาง)', s.speedWarn, 'var(--warn-text)'],
+            ['🔴 > 20s (ไม่ผ่าน)', s.speedFail, 'var(--err-text)'],
           ].map(([l, v, c]) => (
             <div key={l} className={u.metric}>
               <div className={u.mLabel}>{l}</div>

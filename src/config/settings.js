@@ -36,17 +36,19 @@ export const DIFY_DEFAULTS = {
 
 export const TEST_DEFAULTS = {
   questionCountMandatory: 5,
-  questionCountGeneral: 50,
-  questionCountDatabase: 50,
-  speedGood: 5,    // ≤ 5s = ดี
-  speedOk: 8,      // ≤ 8s = ปานกลาง
-  speedMax: 10,    // ≤ 10s = พอรับได้ / > 10s = ไม่ผ่าน
+  questionCountVTransAll: 5,
+  questionCountSimsat: 5,
+  speedGood: 8,    // ≤ 8s = ดี
+  speedOk: 15,     // ≤ 15s = ปานกลาง
+  speedMax: 20,    // ≤ 20s = พอรับได้ / > 20s = ไม่ผ่าน
   maxWords: 500,
-  timeout: 20,
+  timeout: 30,
   /** 0 = รันครบทุกข้อ (ไม่หยุดกลางคัน) | >0 = หยุดเมื่อ fail เกิน % หลังรันอย่างน้อย 80% ของชุด */
   stopAtFailPct: 0,
   /** คะแนนความถูกต้องขั้นต่ำ (0–1) เพื่อถือว่าผ่าน — เช่น 0.5 = ครบครึ่งประเด็น */
   accuracyMinScore: 0.5,
+  /** หน่วงเวลา (วินาที) ระหว่างคำถามแต่ละข้อ */
+  questionDelay: 10,
 }
 
 // เรียกผ่าน proxy เดียวกับ origin — หลีกเลี่ยง CORS (dev: Vite proxy, prod: server.mjs)

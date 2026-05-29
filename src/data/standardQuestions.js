@@ -15,6 +15,7 @@ import mandatoryCsv from './csv/mandatory.csv?raw'
 import generalCsv from './csv/general.csv?raw'
 import databaseCsv from './csv/database.csv?raw'
 import simsatCsv from './csv/simsat.csv?raw'
+import vtransallCsv from './csv/vtransall.csv?raw'
 
 /** จังหวัดในพื้นที่รับผิดชอบ สำนักชลประทานที่ 4 */
 export const RID4_PROVINCES = ['กำแพงเพชร', 'แพร่', 'ตาก', 'สุโขทัย']
@@ -50,23 +51,65 @@ function loadCsvQuestions(csvText, type) {
     .map(row => rowToQuestion(row, type))
 }
 
-const _mandatory = loadCsvQuestions(mandatoryCsv, 'mandatory')
+// loader สำหรับ CSV ที่ใช้ header ภาษาไทย: ID,ประเภท,คำถาม,แนวทางคำตอบ,ประเด็นสำคัญ
+function loadThaiHeaderCsv(csvText, type, extraFields = {}) {
+  return parseCsvToObjects(csvText)
+    .filter(row => (row['คำถาม'] || row.text) && (row['แนวทางคำตอบ'] || row.referenceAnswer))
+    .map(row => {
+      const id = row['ID'] || row.id
+      const keyPoints = (row['ประเด็นสำคัญ'] || row.keyPoints || '')
+        .split(KEY_POINTS_SEP)
+        .map(s => s.trim())
+        .filter(Boolean)
+      return {
+        id,
+        text: row['คำถาม'] || row.text,
+        type,
+        referenceAnswer: row['แนวทางคำตอบ'] || row.referenceAnswer || '',
+        keyPoints,
+        standardId: id,
+        ...extraFields,
+      }
+    })
+}
+
+function loadMandatoryQuestions(csvText) {
+  return loadThaiHeaderCsv(csvText, 'mandatory')
+}
+
+function loadVTransAllQuestions(csvText) {
+  return loadThaiHeaderCsv(csvText, 'database', { questionScope: 'specific', dataset: 'v_trans_all' })
+}
+
+function shuffleAndPick(arr, n) {
+  const copy = [...arr]
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[copy[i], copy[j]] = [copy[j], copy[i]]
+  }
+  return copy.slice(0, Math.min(n, copy.length))
+}
+
+const _mandatory = loadMandatoryQuestions(mandatoryCsv)
+const _vtransall = loadVTransAllQuestions(vtransallCsv)
 const _general = loadCsvQuestions(generalCsv, 'general')
 const _database = loadCsvQuestions(databaseCsv, 'database')
 const _simsat = loadCsvQuestions(simsatCsv, 'database').map(q => ({
   ...q,
-  // tag for UI/filtering if needed later (non-breaking)
   dataset: 'simsat',
 }))
 
 export const STANDARD_QUESTIONS = {
   mandatory: _mandatory,
+  vtransall: _vtransall,
   general: _general,
   database: _database,
   simsat: _simsat,
 }
 
 export const MANDATORY_COUNT = _mandatory.length
+export const VTRANSALL_COUNT = _vtransall.length
+export const SIMSAT_COUNT = _simsat.length
 
 export function getMandatoryQuestions() {
   return _mandatory
@@ -74,4 +117,16 @@ export function getMandatoryQuestions() {
 
 export function getStandardPool(type) {
   return STANDARD_QUESTIONS[type] || []
+}
+
+export function pickMandatoryRandom(n) {
+  return shuffleAndPick(_mandatory, n)
+}
+
+export function pickVTransAllRandom(n) {
+  return shuffleAndPick(_vtransall, n)
+}
+
+export function pickSimsatRandom(n) {
+  return shuffleAndPick(_simsat, n)
 }
