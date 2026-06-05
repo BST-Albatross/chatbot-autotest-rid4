@@ -1,6 +1,6 @@
 // utils/testRunner.js
 import { sendToDify } from './difyClient.js'
-import { judgeAnswerAgainstReference, isNonSubstantiveResponse, isClarificationOnlyResponse, computeKeywordScore, answerHasData } from './questionGenerator.js'
+import { judgeAnswerAgainstReference, isNonSubstantiveResponse, answerHasData } from './questionGenerator.js'
 
 export async function evaluateResult(question, response, cfg) {
   const { elapsed, answer, ok, error } = response
@@ -43,55 +43,7 @@ export async function evaluateResult(question, response, cfg) {
     consistencyReason = j.consistencyReason
     judgeModel = j.judgeModel ?? null
     judgeModelLabel = j.judgeModelLabel ?? null
-
-    if (isNonSubstantiveResponse(answer, question)) {
-      const kw = computeKeywordScore(answer, question.keyPoints)
-      if (kw.score > 0) {
-        accuracyScore = kw.score
-        coveredPoints = kw.covered
-        missedPoints = kw.missed
-        accuracy = accuracyScore >= accuracyMinScore ? 'pass' : 'fail'
-        if (isClarificationOnlyResponse(answer, question)) {
-          consistency = 'fail'
-          consistencyScore = 0
-          accuracyReason = `พบ ${kw.covered.length}/${question.keyPoints?.length || 0} ประเด็น (คำตอบถามย้อนกลับแทนตอบตรง)`
-          consistencyReason = 'ถามย้อนกลับขอข้อมูลเพิ่มแทนการตอบ ไม่ถือว่าผ่าน'
-        } else {
-          accuracyReason = `พบ ${kw.covered.length}/${question.keyPoints?.length || 0} ประเด็น (แต่มีข้อความ "ไม่พบข้อมูล" ปนอยู่)`
-          if (answerHasData(answer)) {
-            consistency = 'pass'
-            consistencyScore = 0.5
-            consistencyReason = 'อธิบายข้อจำกัดข้อมูล แล้วให้ข้อมูลที่มีแทน — สอดคล้องภายใน (0.5)'
-          } else {
-            consistency = 'fail'
-            consistencyScore = 0
-            consistencyReason = 'คำตอบมีข้อความปฏิเสธ "ไม่พบข้อมูล" และไม่มีตัวเลขข้อมูลจริง'
-          }
-        }
-      } else {
-        accuracyScore = 0
-        accuracy = 'fail'
-        consistency = 'fail'
-        consistencyScore = 0
-        if (isClarificationOnlyResponse(answer, question)) {
-          accuracyReason = 'ไม่ตอบข้อมูลจากฐานข้อมูล — ถามย้อนกลับให้ระบุจังหวัด/สถานีแทนการสรุปค่าตามแนวทาง'
-          consistencyReason = 'คำตอบไม่สมบูรณ์ (ขอข้อมูลเพิ่มแทนการตอบ) ไม่ถือว่าผ่าน'
-        } else if (!accuracyReason.includes('ไม่ตอบ')) {
-          accuracyReason = 'ไม่ตอบเนื้อหาตามคำถาม — แจ้งว่าไม่พบข้อมูลในระบบแทนการให้คำตอบตามแนวทาง'
-          consistencyReason = 'คำตอบไม่สมบูรณ์ (ปฏิเสธ/ไม่พบข้อมูล) ไม่ถือว่าผ่านแม้ไม่มีข้อความขัดแย้ง'
-        }
-      }
-    } else {
-      if (question.keyPoints?.length) {
-        const kw = computeKeywordScore(answer, question.keyPoints)
-        if (kw.score > accuracyScore) {
-          accuracyScore = kw.score
-          coveredPoints = kw.covered
-          missedPoints = kw.missed
-        }
-      }
-      accuracy = accuracyScore >= accuracyMinScore ? 'pass' : 'fail'
-    }
+    accuracy = accuracyScore >= accuracyMinScore ? 'pass' : 'fail'
   }
 
   // score = accuracy(0/1) + speed(0/1) + consistencyScore(0/0.5/1) + length(0/1) — max 4
@@ -101,8 +53,7 @@ export async function evaluateResult(question, response, cfg) {
     consistencyScore +
     (lengthScore === 'pass' ? 1 : 0)
 
-  const kwCoverage = computeKeywordScore(answer, question.keyPoints)
-  const noAnswer = ok && isNonSubstantiveResponse(answer, question) && kwCoverage.score === 0
+  const noAnswer = ok && isNonSubstantiveResponse(answer, question) && !answerHasData(answer)
 
   return {
     id: question.id,
@@ -207,6 +158,9 @@ export async function runTestSuite(questions, difyConfig, testConfig, options = 
       const response = await sendToDify(q.text, { ...difyConfig, timeout: testConfig.timeout })
       result = await evaluateResult(q, response, testConfig)
 
+      if (response.ok && response.ttfb !== undefined) {
+        onLog(`🕐 ข้อ #${q.id}: TTFB ${response.ttfb}s / รวม ${response.elapsed?.toFixed(2)}s`, 'info')
+      }
       if (!response.ok && isTimeoutError(response.error)) {
         onLog(`⏱ Timeout ข้อ #${q.id} — ดำเนินข้อถัดไป`, 'warn')
       }

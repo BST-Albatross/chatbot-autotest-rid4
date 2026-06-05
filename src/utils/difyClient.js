@@ -37,16 +37,18 @@ export async function sendToDify(question, config) {
       return { ok: false, answer: '', elapsed, error: `HTTP ${res.status}: ${errText.slice(0, 150)}` }
     }
 
+    const ttfb = parseFloat(((performance.now() - start) / 1000).toFixed(2))
+
     if (mode === 'streaming') {
       const answer = await readStream(res, controller.signal, remainingMs)
       const elapsed = (performance.now() - start) / 1000
-      return { ok: true, answer, elapsed }
+      return { ok: true, answer, elapsed, ttfb }
     }
 
     const data = await readJsonWithDeadline(res, controller.signal, remainingMs)
     const elapsed = (performance.now() - start) / 1000
     const answer = data.answer || data.text || JSON.stringify(data)
-    return { ok: true, answer: String(answer), elapsed }
+    return { ok: true, answer: String(answer), elapsed, ttfb }
   } catch (err) {
     const elapsed = (performance.now() - start) / 1000
     const isTimeout =

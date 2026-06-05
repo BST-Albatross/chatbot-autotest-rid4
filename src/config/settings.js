@@ -65,8 +65,8 @@ export const JUDGE_OPENROUTER_MODELS = [
   'moonshotai/kimi-k2.5',
 ]
 
-/** false = ใช้เฉพาะ OpenRouter; ถ้า AI ล้มเหลวจะไม่ตรวจแบบ heuristic */
-export const JUDGE_ENABLE_HEURISTIC = false
+/** true = ถ้า OpenRouter ล้มเหลวจะตรวจแบบ heuristic (keyword) แทน */
+export const JUDGE_ENABLE_HEURISTIC = true
 
 const JUDGE_MODEL_LABELS = {
   'moonshotai/kimi-k2.5': 'MoonshotAI: Kimi K2.5',

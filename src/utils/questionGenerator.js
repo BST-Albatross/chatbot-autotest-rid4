@@ -216,17 +216,23 @@ function normalizeQuestion(raw, index) {
 export function isNoAnswerResponse(answer) {
   if (!answer || answer.trim().length < 8) return true;
   const a = answer.replace(/\s+/g, " ");
+
+  // ถ้าคำตอบมีตัวเลข+หน่วยจริง ไม่ถือว่าเป็น "ไม่มีคำตอบ" ไม่ว่าจะมีประโยคปฏิเสธปนหรือไม่
+  if (answerHasData(a)) return false;
+
   const patterns = [
     /ไม่พบข้อมูล/i,
     /ไม่มีข้อมูล/i,
     /ไม่พบคำตอบ/i,
     /ไม่มีคำตอบ/i,
-    /ไม่สามารถตอบ/i,
+    // เพิ่มบริบทให้เฉพาะเจาะจงขึ้น — ป้องกัน false positive เช่น "ไม่สามารถระบุได้แน่ชัด แต่..."
+    /ไม่สามารถตอบ(?:คำถาม|ได้|นี้)/i,
     /ไม่มีในฐานข้อมูล/i,
     /ไม่มีข้อมูลใน(?:ฐานข้อมูล|ระบบ)/i,
     /ไม่พบข้อมูล.*(?:ในฐานข้อมูล|ในระบบ|ที่ระบบ)/i,
-    /(?:ในฐานข้อมูล|ในระบบ).*ไม่(?:พบ|มี)/i,
-    /ขออภัย[^.]{0,80}ไม่(?:พบ|มี)/i,
+    // เพิ่ม "ข้อมูล" ต่อท้าย ป้องกัน match "ในระบบ...ไม่มีการระบาย" หรือ "ในระบบ...ไม่มีน้ำ"
+    /(?:ในฐานข้อมูล|ในระบบ).*ไม่(?:พบ|มี)ข้อมูล/i,
+    /ขออภัย[^.]{0,80}ไม่(?:พบ|มี)ข้อมูล/i,
     /ไม่มีข้อมูล[^.]{0,60}(?:RID|rid)/i,
   ];
   return patterns.some((re) => re.test(a));
@@ -289,7 +295,53 @@ export function answerHasData(answer) {
     /ระดับน้ำ.{0,30}\d/i.test(a)
 }
 
-/** คำนวณ keyword coverage จาก keyPoints — ใช้เมื่อ AI judge ให้ 0 แต่คำตอบมีคำสำคัญครบ */
+// กลุ่มคำพ้องความหมาย — คำใดกลุ่มเดียวกันถือว่า match กัน
+const SYNONYM_GROUPS = [
+  // หน่วยปริมาตรน้ำ
+  ['ลบ.ม.', 'ลบม.', 'ลบม', 'ลูกบาศก์เมตร'],
+  ['ล้าน ลบ.ม.', 'ล้านลบ.ม.', 'ล้านลบม', 'ล้านลูกบาศก์เมตร'],
+  // หน่วยความยาว
+  ['ม.', 'เมตร'],
+  ['มม.', 'มิลลิเมตร'],
+  ['กม.', 'กิโลเมตร'],
+  // หน่วยเปอร์เซ็นต์
+  ['%', 'เปอร์เซ็นต์', 'ร้อยละ'],
+  // ปริมาณ
+  ['มาก', 'เยอะ', 'จำนวนมาก', 'มากมาย'],
+  ['น้อย', 'เล็กน้อย', 'นิดหน่อย'],
+  // แนวโน้ม
+  ['เพิ่มขึ้น', 'สูงขึ้น', 'มากขึ้น', 'เพิ่ม'],
+  ['ลดลง', 'ต่ำลง', 'น้อยลง', 'ลด'],
+  // เวลา
+  ['ปัจจุบัน', 'ล่าสุด', 'ขณะนี้', 'ตอนนี้', 'วันนี้'],
+  ['เมื่อวาน', 'วานนี้', 'เมื่อวานนี้'],
+  // การไหลของน้ำ
+  ['ระบาย', 'ไหลออก', 'ปล่อยน้ำ'],
+  ['ไหลเข้า', 'รับน้ำ'],
+  ['เก็บกัก', 'กักเก็บ', 'สำรองน้ำ', 'กักน้ำ'],
+  // ภัยพิบัติ
+  ['น้ำท่วม', 'อุทกภัย', 'ท่วม'],
+  ['ภัยแล้ง', 'แล้ง', 'ขาดแคลนน้ำ'],
+]
+
+// สร้าง map: คำ → index กลุ่ม (lowercase)
+const _synonymMap = new Map()
+for (let gi = 0; gi < SYNONYM_GROUPS.length; gi++) {
+  for (const word of SYNONYM_GROUPS[gi]) {
+    _synonymMap.set(word.toLowerCase(), gi)
+  }
+}
+
+function tokenMatchesAnswer(token, answerLower) {
+  if (answerLower.includes(token)) return true
+  const gi = _synonymMap.get(token)
+  if (gi === undefined) return false
+  return SYNONYM_GROUPS[gi].some(
+    syn => syn.toLowerCase() !== token && answerLower.includes(syn.toLowerCase())
+  )
+}
+
+/** คำนวณ keyword coverage จาก keyPoints — รองรับคำพ้องและหน่วยย่อ/เต็ม */
 export function computeKeywordScore(answer, keyPoints) {
   if (!answer || !keyPoints?.length) return { score: 0, covered: [], missed: keyPoints || [] }
   const a = answer.toLowerCase()
@@ -298,7 +350,7 @@ export function computeKeywordScore(answer, keyPoints) {
   for (const p of keyPoints) {
     const tokens = p.toLowerCase().split(/\s+/).filter(w => w.length > 1).slice(0, 4)
     const hit = tokens.length
-      ? tokens.filter(t => a.includes(t)).length / tokens.length >= 0.4
+      ? tokens.filter(t => tokenMatchesAnswer(t, a)).length / tokens.length >= 0.4
       : false
     if (hit) covered.push(p)
     else missed.push(p)
@@ -820,6 +872,21 @@ ${pointsList}
       },
       judgeModel,
     );
+    // คำตอบมีเนื้อหาจริง — ใช้ค่าสูงสุดระหว่าง AI score กับ keyword coverage
+    if (!isNonSubstantiveResponse(answer, question)) {
+      const kw = computeKeywordScore(answer, points)
+      if (kw.score >= 0.3 && kw.score > result.accuracyScore) {
+        result = attachJudgeMeta({
+          ...result,
+          accuracyScore: kw.score,
+          coveredPoints: kw.covered,
+          missedPoints: kw.missed,
+          accuracyReason: result.accuracyScore > 0
+            ? `พบ ${kw.covered.length}/${points.length} ประเด็น (keyword ${kw.score.toFixed(2)} > AI ${result.accuracyScore.toFixed(2)})`
+            : `พบ ${kw.covered.length}/${points.length} ประเด็น (keyword — AI judge score=0)`,
+        }, judgeModel)
+      }
+    }
     if (isClarificationOnlyResponse(answer, question)) {
       const kw = computeKeywordScore(answer, points)
       if (kw.score > 0) {
@@ -949,15 +1016,9 @@ function heuristicContentJudge(
   const covered = [];
   const missed = [];
   for (const p of keyPoints) {
-    // console.log(p)
-    const tokens = p
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w) => w.length > 1)
-      .slice(0, 4);
-    // console.log(tokens)
+    const tokens = p.toLowerCase().split(/\s+/).filter((w) => w.length > 1).slice(0, 4);
     const hit = tokens.length
-      ? tokens.filter((t) => a.includes(t)).length / tokens.length >= 0.4
+      ? tokens.filter((t) => tokenMatchesAnswer(t, a)).length / tokens.length >= 0.4
       : false;
     if (hit) covered.push(p);
     else missed.push(p);

@@ -21,13 +21,18 @@ function AccuracyCell({ score, pass }) {
 
 function JudgeMethodBadge({ label, modelId }) {
   if (!label) return <span className={`${u.badge} ${u.bGray}`}>—</span>
+  const isHeuristic = modelId === 'heuristic'
   const cls =
     modelId === 'unavailable' ? u.bErr
-      : modelId === 'heuristic' ? u.bGray
+      : isHeuristic ? u.bWarn
         : u.bInfo
+  const icon = isHeuristic ? '🔍' : '🤖'
+  const title = isHeuristic
+    ? `Keyword matching (ไม่ได้ใช้ OpenRouter AI) — ${modelId}`
+    : (modelId || label)
   return (
-    <span className={`${u.badge} ${cls}`} title={modelId || label}>
-      🤖 {label}
+    <span className={`${u.badge} ${cls}`} title={title}>
+      {icon} {label}
     </span>
   )
 }
@@ -97,12 +102,22 @@ export default function ResultTab({ results }) {
                     <tr>
                       <td colSpan={9} style={{ padding: '8px 12px', background: 'var(--bg-2)' }}>
                         <div style={{ fontSize: 12, lineHeight: 1.8 }}>
-                          <div style={{ marginBottom: 8, padding: '6px 8px', background: 'var(--info-bg)', borderRadius: 6, color: 'var(--info-text)' }}>
+                          <div style={{
+                            marginBottom: 8, padding: '6px 8px', borderRadius: 6,
+                            background: r.judgeModel === 'heuristic' ? 'var(--warn-bg)' : 'var(--info-bg)',
+                            color: r.judgeModel === 'heuristic' ? 'var(--warn-text)' : 'var(--info-text)',
+                          }}>
                             <strong>วิธีการตรวจสอบ:</strong>{' '}
                             {r.judgeModelLabel ? (
                               <>
+                                {r.judgeModel === 'heuristic' ? '🔍' : '🤖'}{' '}
                                 {r.judgeModelLabel}
-                                {r.judgeModel && r.judgeModel !== r.judgeModelLabel && (
+                                {r.judgeModel === 'heuristic' && (
+                                  <span style={{ opacity: 0.85, marginLeft: 8, fontSize: 11 }}>
+                                    ⚠️ ใช้ Keyword Matching แทน — OpenRouter ไม่พร้อมใช้งาน
+                                  </span>
+                                )}
+                                {r.judgeModel && r.judgeModel !== r.judgeModelLabel && r.judgeModel !== 'heuristic' && (
                                   <span style={{ opacity: 0.75, marginLeft: 6, fontSize: 11 }}>({r.judgeModel})</span>
                                 )}
                               </>
