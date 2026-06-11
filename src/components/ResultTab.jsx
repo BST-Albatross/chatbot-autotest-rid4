@@ -1,5 +1,5 @@
 import { useState, Fragment } from 'react'
-import { exportCSV, exportJSON } from '../utils/exportUtils.js'
+import { exportDetailCSV, exportJSON } from '../utils/exportUtils.js'
 import u from './ui.module.css'
 
 function ScorCell({ val, label }) {
@@ -57,7 +57,7 @@ export default function ResultTab({ results }) {
             <button key={f} className={filter === f ? u.btnP : u.btnSm} onClick={() => setFilter(f)}>{l} ({n})</button>
           ))}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-            <button className={u.btnSm} onClick={() => exportCSV(results)}>⬇️ CSV</button>
+            <button className={u.btnSm} onClick={() => exportDetailCSV(results)}>⬇️ Export ผลรายข้อ CSV</button>
             <button className={u.btnSm} onClick={() => exportJSON(results)}>⬇️ JSON</button>
           </div>
         </div>
@@ -102,6 +102,7 @@ export default function ResultTab({ results }) {
                     <tr>
                       <td colSpan={9} style={{ padding: '8px 12px', background: 'var(--bg-2)' }}>
                         <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                          {/* วิธีตรวจสอบ */}
                           <div style={{
                             marginBottom: 8, padding: '6px 8px', borderRadius: 6,
                             background: r.judgeModel === 'heuristic' ? 'var(--warn-bg)' : 'var(--info-bg)',
@@ -125,19 +126,35 @@ export default function ResultTab({ results }) {
                               '— (ยังไม่ได้รัน Judge หรือไม่ได้รับคำตอบจาก Dify)'
                             )}
                           </div>
+                          {/* แนวทางคำตอบ */}
                           {r.referenceAnswer && (
                             <div style={{ marginBottom: 8, padding: '6px 8px', background: 'var(--bg)', borderRadius: 6 }}>
                               <strong>แนวทางคำตอบ:</strong> {r.referenceAnswer}
                             </div>
                           )}
-                          {r.accuracyReason && <div>🎯 {r.accuracyReason}</div>}
-                          {r.coveredPoints?.length > 0 && (
-                            <div>✓ ครอบคลุม: {r.coveredPoints.join(' · ')}</div>
-                          )}
-                          {r.missedPoints?.length > 0 && (
-                            <div style={{ color: 'var(--warn-text)' }}>✗ ขาด: {r.missedPoints.join(' · ')}</div>
-                          )}
-                          {r.consistencyReason && <div>⚠️ สอดคล้อง: {r.consistencyReason}</div>}
+                          {/* เกณฑ์ที่ 1: ความถูกต้อง */}
+                          <div style={{ marginBottom: 6, padding: '6px 8px', borderRadius: 6, background: 'var(--bg)', borderLeft: `3px solid ${r.accuracy === 'pass' ? 'var(--ok-text)' : 'var(--err-text)'}` }}>
+                            <div><strong>เกณฑ์ที่ 1: ความถูกต้อง</strong> — <span style={{ color: r.accuracy === 'pass' ? 'var(--ok-text)' : 'var(--err-text)' }}>{r.accuracy === 'pass' ? '✅ ผ่าน' : '❌ ไม่ผ่าน'}</span> <span style={{ color: 'var(--text-3)' }}>({r.accuracyScore != null ? `คะแนน ${r.accuracyScore.toFixed(1)}` : '—'})</span></div>
+                            {r.accuracyReason && <div style={{ marginTop: 2, color: 'var(--text-2)' }}>เหตุผล: {r.accuracyReason}</div>}
+                            {r.coveredPoints?.length > 0 && <div style={{ color: 'var(--ok-text)', marginTop: 2 }}>✓ ครอบคลุม: {r.coveredPoints.join(' · ')}</div>}
+                            {r.missedPoints?.length > 0 && <div style={{ color: 'var(--warn-text)', marginTop: 2 }}>✗ ขาด: {r.missedPoints.join(' · ')}</div>}
+                          </div>
+                          {/* เกณฑ์ที่ 2: ความเร็ว */}
+                          <div style={{ marginBottom: 6, padding: '6px 8px', borderRadius: 6, background: 'var(--bg)', borderLeft: `3px solid ${r.speedScore === 'pass' ? 'var(--ok-text)' : r.speedScore === 'warn' ? 'var(--warn-text)' : 'var(--err-text)'}` }}>
+                            <div><strong>เกณฑ์ที่ 2: ความเร็ว</strong> — <span style={{ color: r.speedScore === 'pass' ? 'var(--ok-text)' : r.speedScore === 'warn' ? 'var(--warn-text)' : 'var(--err-text)' }}>{r.speedScore === 'pass' ? '✅ ผ่าน' : r.speedScore === 'warn' ? '⚠️ เตือน' : '❌ ไม่ผ่าน'}</span></div>
+                            <div style={{ marginTop: 2, color: 'var(--text-2)' }}>เหตุผล: ใช้เวลา {r.elapsed}s {r.speedScore === 'pass' ? '— อยู่ในเกณฑ์ดี (≤8s)' : r.speedScore === 'warn' ? '— ช้าเกินเกณฑ์ดี แต่ยังยอมรับได้ (8–20s)' : '— ช้าเกินกำหนด (>20s)'}</div>
+                          </div>
+                          {/* เกณฑ์ที่ 3: ความสอดคล้อง */}
+                          <div style={{ marginBottom: 6, padding: '6px 8px', borderRadius: 6, background: 'var(--bg)', borderLeft: `3px solid ${r.consistency === 'pass' ? 'var(--ok-text)' : 'var(--err-text)'}` }}>
+                            <div><strong>เกณฑ์ที่ 3: ความสอดคล้อง</strong> — <span style={{ color: r.consistency === 'pass' ? 'var(--ok-text)' : 'var(--err-text)' }}>{r.consistency === 'pass' ? '✅ ผ่าน' : '❌ ไม่ผ่าน'}</span> <span style={{ color: 'var(--text-3)' }}>({r.consistencyScore != null ? `คะแนน ${r.consistencyScore.toFixed(1)}` : '—'})</span></div>
+                            {r.consistencyReason && <div style={{ marginTop: 2, color: 'var(--text-2)' }}>เหตุผล: {r.consistencyReason}</div>}
+                          </div>
+                          {/* เกณฑ์ที่ 4: ความยาว */}
+                          <div style={{ marginBottom: 6, padding: '6px 8px', borderRadius: 6, background: 'var(--bg)', borderLeft: `3px solid ${r.lengthScore === 'pass' ? 'var(--ok-text)' : 'var(--err-text)'}` }}>
+                            <div><strong>เกณฑ์ที่ 4: ความยาว</strong> — <span style={{ color: r.lengthScore === 'pass' ? 'var(--ok-text)' : 'var(--err-text)' }}>{r.lengthScore === 'pass' ? '✅ ผ่าน' : '❌ ไม่ผ่าน'}</span></div>
+                            <div style={{ marginTop: 2, color: 'var(--text-2)' }}>เหตุผล: {r.wordCount} คำ — {r.lengthScore === 'pass' ? 'อยู่ในเกณฑ์ (≤500 คำ)' : 'เกินความยาวที่กำหนด (>500 คำ)'}</div>
+                          </div>
+                          {/* คำตอบ Chatbot */}
                           {r.answer && (
                             <div style={{ marginTop: 6, padding: '6px 8px', background: 'var(--bg)', borderRadius: 6, maxHeight: 120, overflowY: 'auto', color: 'var(--text-2)' }}>
                               <strong>คำตอบ Chatbot:</strong> {r.answer.slice(0, 500)}{r.answer.length > 500 ? '…' : ''}

@@ -11,11 +11,9 @@ function q(val) {
   return `"${String(val ?? '').replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`
 }
 
-export function exportCSV(results) {
+export function exportSummaryCSV(results) {
   const s = buildSummary(results)
-
-  // --- ส่วนที่ 1: สรุปภาพรวม ---
-  const summaryRows = [
+  const rows = [
     ['สรุปผลการทดสอบ', `วันที่ ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}`],
     [],
     ['ภาพรวม', '', 'ผลแยกตามประเภทคำถาม'],
@@ -38,22 +36,21 @@ export function exportCSV(results) {
     ['🟢 ≤8s (ดี)', s.speedPass, 'ข้อ'],
     ['🟡 8–20s (ปานกลาง)', s.speedWarn, 'ข้อ'],
     ['🔴 >20s (ไม่ผ่าน)', s.speedFail, 'ข้อ'],
-    [],
-    [],
   ]
+  dl('﻿' + rows.map(r => r.join(',')).join('\n'), `summary_${ds()}.csv`, 'text/csv;charset=utf-8')
+}
 
-  // --- ส่วนที่ 2: ตารางรายข้อ ---
+export function exportDetailCSV(results) {
   const header = [
     'ID', 'ประเภท', 'คำถาม',
     'แนวทางคำตอบ', 'คำตอบจากแชต',
     'ความถูกต้อง_ผล', 'ความถูกต้อง_คะแนน(0-1)', 'วิธีตรวจสอบ', 'รหัสโมเดล', 'ความถูกต้อง_เหตุผล',
     'ประเด็นที่ครอบคลุม', 'ประเด็นที่ขาด',
-    'เวลา_ผล', 'เวลา(s)', 'เวลา_รายละเอียด',
+    'เวลา_ผล', 'เวลา(s)', 'เวลา_เหตุผล',
     'ความสอดคล้อง_ผล', 'ความสอดคล้อง_เหตุผล',
-    'ความยาว_ผล', 'จำนวน_words',
+    'ความยาว_ผล', 'จำนวน_words', 'ความยาว_เหตุผล',
     'คะแนนรวม(0-4)', 'ผลรวม',
   ]
-
   const rows = results.map(r => [
     r.id,
     typeLabel(r.type),
@@ -69,21 +66,16 @@ export function exportCSV(results) {
     q((r.missedPoints || []).join(' | ')),
     r.speedScore === 'pass' ? 'ผ่าน' : r.speedScore === 'warn' ? 'เตือน' : 'ไม่ผ่าน',
     r.elapsed,
-    q(r.speedLabel),
+    q(speedReason(r)),
     r.consistency === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน',
     q(r.consistencyReason),
     r.lengthScore === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน',
     r.wordCount,
+    q(lengthReason(r)),
     `${r.score}/4`,
     r.overall === 'pass' ? 'ผ่าน' : 'ไม่ผ่าน',
   ])
-
-  const allRows = [
-    ...summaryRows,
-    header,
-    ...rows,
-  ]
-  dl('﻿' + allRows.map(r => r.join(',')).join('\n'), `test_${ds()}.csv`, 'text/csv;charset=utf-8')
+  dl('﻿' + [header, ...rows].map(r => r.join(',')).join('\n'), `detail_${ds()}.csv`, 'text/csv;charset=utf-8')
 }
 
 function parseTypeTh(label) {
@@ -208,6 +200,19 @@ export function buildSummary(results) {
     dbPass: dbResults.filter(r => r.overall === 'pass').length,
     dbTotal: dbResults.length,
   }
+}
+
+function speedReason(r) {
+  const t = r.elapsed
+  if (r.speedScore === 'pass') return `ใช้เวลา ${t}s — อยู่ในเกณฑ์ดี (≤8s)`
+  if (r.speedScore === 'warn') return `ใช้เวลา ${t}s — ช้าเกินเกณฑ์ดี แต่ยังยอมรับได้ (8–20s)`
+  return `ใช้เวลา ${t}s — ช้าเกินกำหนด (>20s)`
+}
+
+function lengthReason(r) {
+  const w = r.wordCount
+  if (r.lengthScore === 'pass') return `${w} คำ — อยู่ในเกณฑ์ (≤500 คำ)`
+  return `${w} คำ — เกินความยาวที่กำหนด (>500 คำ)`
 }
 
 const avg = arr => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0)

@@ -1,4 +1,4 @@
-import { buildSummary, exportCSV, exportJSON } from '../utils/exportUtils.js'
+import { buildSummary, exportSummaryCSV, exportJSON } from '../utils/exportUtils.js'
 import u from './ui.module.css'
 
 function Bar({ label, pass, total, color = '#3b6d11' }) {
@@ -108,7 +108,7 @@ export default function SummaryTab({ results, onGoDetail }) {
       <div className={u.card}>
         <div className={u.cardTitle}>📤 Export ผลการทดสอบ</div>
         <div className={u.btnRow}>
-          <button className={u.btnP} onClick={() => exportCSV(results)}>⬇️ Export CSV</button>
+          <button className={u.btnP} onClick={() => exportSummaryCSV(results)}>⬇️ Export สรุปผล CSV</button>
           <button className={u.btn} onClick={() => exportJSON(results)}>⬇️ Export JSON</button>
           <button className={u.btn} onClick={onGoDetail} style={{ marginLeft: 'auto' }}>📄 ดูผลรายข้อ →</button>
         </div>
