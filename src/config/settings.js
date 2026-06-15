@@ -38,11 +38,11 @@ export const TEST_DEFAULTS = {
   questionCountMandatory: 5,
   questionCountVTransAll: 5,
   questionCountSimsat: 5,
-  speedGood: 8,    // ≤ 8s = ดี
-  speedOk: 15,     // ≤ 15s = ปานกลาง
-  speedMax: 20,    // ≤ 20s = พอรับได้ / > 20s = ไม่ผ่าน
+  speedGood: 10,   // ≤ 10s = ดี
+  speedOk: 20,     // ≤ 20s = ปานกลาง
+  speedMax: 30,    // ≤ 30s = พอรับได้ / > 30s = ไม่ผ่าน
   maxWords: 500,
-  timeout: 30,
+  timeout: 60,
   /** 0 = รันครบทุกข้อ (ไม่หยุดกลางคัน) | >0 = หยุดเมื่อ fail เกิน % หลังรันอย่างน้อย 80% ของชุด */
   stopAtFailPct: 0,
   /** คะแนนความถูกต้องขั้นต่ำ (0–1) เพื่อถือว่าผ่าน — เช่น 0.5 = ครบครึ่งประเด็น */
