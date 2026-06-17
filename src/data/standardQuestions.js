@@ -11,6 +11,7 @@
  */
 
 import { parseCsvToObjects } from '../utils/csvParse.js'
+import baseQuestionCsv from './csv/base_question.csv?raw'
 import mandatoryCsv from './csv/mandatory.csv?raw'
 import generalCsv from './csv/general.csv?raw'
 import databaseCsv from './csv/database.csv?raw'
@@ -90,7 +91,8 @@ function shuffleAndPick(arr, n) {
   return copy.slice(0, Math.min(n, copy.length))
 }
 
-const _mandatory = loadMandatoryQuestions(mandatoryCsv)
+const _base = loadMandatoryQuestions(baseQuestionCsv)
+const _mandatoryRaw = loadMandatoryQuestions(mandatoryCsv)
 const _vtransall = loadVTransAllQuestions(vtransallCsv)
 const _general = loadCsvQuestions(generalCsv, 'general')
 const _database = loadCsvQuestions(databaseCsv, 'database')
@@ -98,6 +100,13 @@ const _simsat = loadCsvQuestions(simsatCsv, 'database').map(q => ({
   ...q,
   dataset: 'simsat',
 }))
+
+// base_question ต้องไม่ซ้ำกับ mandatory.csv
+const _baseTexts = new Set(_base.map(q => q.text.trim().toLowerCase()))
+const _mandatory = [
+  ..._base,
+  ..._mandatoryRaw.filter(q => !_baseTexts.has(q.text.trim().toLowerCase())),
+]
 
 export const STANDARD_QUESTIONS = {
   mandatory: _mandatory,
@@ -107,9 +116,14 @@ export const STANDARD_QUESTIONS = {
   simsat: _simsat,
 }
 
+export const BASE_QUESTION_COUNT = _base.length
 export const MANDATORY_COUNT = _mandatory.length
 export const VTRANSALL_COUNT = _vtransall.length
 export const SIMSAT_COUNT = _simsat.length
+
+export function getBaseQuestions() {
+  return _base
+}
 
 export function getMandatoryQuestions() {
   return _mandatory
@@ -119,8 +133,12 @@ export function getStandardPool(type) {
   return STANDARD_QUESTIONS[type] || []
 }
 
+/** สุ่ม mandatory แต่ base_question ต้องอยู่แรกสุดเสมอ ครบทุกข้อ */
 export function pickMandatoryRandom(n) {
-  return shuffleAndPick(_mandatory, n)
+  const extraPool = _mandatory.slice(_base.length)   // ส่วนที่ไม่ใช่ base
+  const extraCount = Math.max(0, n - _base.length)
+  const extra = shuffleAndPick(extraPool, extraCount)
+  return [..._base, ...extra]
 }
 
 export function pickVTransAllRandom(n) {

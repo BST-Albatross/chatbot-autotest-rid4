@@ -82,8 +82,8 @@ export default function ResultTab({ results }) {
                 <Fragment key={r.id}>
                   <tr className={r.overall === 'fail' ? u.tblFail : ''} style={{ cursor: 'pointer' }} onClick={() => setExpand(expand === r.id ? null : r.id)}>
                     <td style={{ color: 'var(--text-3)' }}>{r.id}</td>
-                    <td style={{ maxWidth: 220 }}>
-                      <span title={r.text} style={{ fontSize: 12 }}>{r.text.slice(0, 50)}{r.text.length > 50 ? '…' : ''}</span>
+                    <td style={{ minWidth: 220 }}>
+                      <span style={{ fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{r.text}</span>
                       {r.error && <span style={{ display: 'block', fontSize: 11, color: 'var(--err-text)' }}>⚠ {r.error}</span>}
                     </td>
                     <td><span className={`${u.badge} ${r.type === 'mandatory' ? u.bMust : r.type === 'general' ? u.bInfo : u.bWarn}`}>
@@ -142,7 +142,7 @@ export default function ResultTab({ results }) {
                           {/* เกณฑ์ที่ 2: ความเร็ว */}
                           <div style={{ marginBottom: 6, padding: '6px 8px', borderRadius: 6, background: 'var(--bg)', borderLeft: `3px solid ${r.speedScore === 'pass' ? 'var(--ok-text)' : r.speedScore === 'warn' ? 'var(--warn-text)' : 'var(--err-text)'}` }}>
                             <div><strong>เกณฑ์ที่ 2: ความเร็ว</strong> — <span style={{ color: r.speedScore === 'pass' ? 'var(--ok-text)' : r.speedScore === 'warn' ? 'var(--warn-text)' : 'var(--err-text)' }}>{r.speedScore === 'pass' ? '✅ ผ่าน' : r.speedScore === 'warn' ? '⚠️ เตือน' : '❌ ไม่ผ่าน'}</span></div>
-                            <div style={{ marginTop: 2, color: 'var(--text-2)' }}>เหตุผล: ใช้เวลา {r.elapsed}s {r.speedScore === 'pass' ? '— อยู่ในเกณฑ์ดี (≤8s)' : r.speedScore === 'warn' ? '— ช้าเกินเกณฑ์ดี แต่ยังยอมรับได้ (8–20s)' : '— ช้าเกินกำหนด (>20s)'}</div>
+                            <div style={{ marginTop: 2, color: 'var(--text-2)' }}>เหตุผล: ใช้เวลา {r.elapsed}s {r.speedScore === 'pass' ? '— อยู่ในเกณฑ์ดี (≤10s)' : r.speedScore === 'warn' ? '— ช้าเกินเกณฑ์ดี แต่ยังยอมรับได้ (10–30s)' : '— ช้าเกินกำหนด (>30s)'}</div>
                           </div>
                           {/* เกณฑ์ที่ 3: ความสอดคล้อง */}
                           <div style={{ marginBottom: 6, padding: '6px 8px', borderRadius: 6, background: 'var(--bg)', borderLeft: `3px solid ${r.consistency === 'pass' ? 'var(--ok-text)' : 'var(--err-text)'}` }}>

@@ -18,6 +18,7 @@ function attachJudgeMeta(result, modelId) {
   };
 }
 import {
+  getBaseQuestions,
   getMandatoryQuestions,
   getStandardPool,
   RID4_PROVINCES_LABEL,
@@ -380,9 +381,11 @@ function inferKeyPoints(referenceAnswer) {
 }
 
 function pickMandatoryQuestions(n) {
-  const all = getMandatoryQuestions();
-  const count = Math.max(0, Math.min(n, all.length));
-  return all.slice(0, count);
+  const base = getBaseQuestions()
+  const all = getMandatoryQuestions()   // base แรก, ตามด้วย mandatory ที่เหลือ
+  const extra = all.slice(base.length)  // ส่วน mandatory.csv ที่ไม่ใช่ base
+  const extraCount = Math.max(0, n - base.length)
+  return [...base, ...extra.slice(0, extraCount)]
 }
 
 function countDataset(items, dataset) {
