@@ -9,11 +9,24 @@ export default function QuestionsTab({ questions, onGoRun, onResetQuestions, onI
   const [importErr, setImportErr] = useState('')
   const fileRef = useRef(null)
 
-  function handleLoadSimsat() {
-    const qs = getStandardPool('simsat').map((q, i) => ({ ...q, id: i + 1 }))
-    if (!qs.length) return setImportErr('ไม่พบคำถาม SIMSAT ใน simsat.csv')
-    setImportErr('')
-    onImportQuestions(qs)
+  function handleSwap(question) {
+    const poolKey = question.dataset === 'simsat' ? 'simsat'
+      : question.dataset === 'v_trans_all' ? 'vtransall'
+      : question.type
+    const pool = getStandardPool(poolKey)
+    const usedTexts = new Set(questions.map(q => q.text.trim().toLowerCase()))
+    const candidates = pool.filter(q => !usedTexts.has(q.text.trim().toLowerCase()))
+    if (!candidates.length) return
+    const pick = candidates[Math.floor(Math.random() * candidates.length)]
+    const updated = questions.map(q =>
+      q.id === question.id ? { ...pick, id: q.id } : q
+    )
+    onImportQuestions(updated)
+  }
+
+  function handleShuffle() {
+    const shuffled = [...questions].sort(() => Math.random() - 0.5).map((q, i) => ({ ...q, id: i + 1 }))
+    onImportQuestions(shuffled)
   }
 
   async function handleImport(e) {
@@ -44,7 +57,6 @@ export default function QuestionsTab({ questions, onGoRun, onResetQuestions, onI
     <div className={u.card}>
       <div className={u.empty}>📋 ยังไม่มีคำถาม — ไปที่แท็บ "ตั้งค่า" แล้วกด "สร้างคำถาม" หรือ import จาก CSV</div>
       <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 12 }}>
-        <button type="button" className={u.btnP} onClick={handleLoadSimsat}>📡 คำถาม SIMSAT</button>
         <button type="button" className={u.btn} onClick={() => fileRef.current?.click()}>⬆️ Import CSV</button>
       </div>
       {importErr && <div style={{ color: 'var(--err-text)', fontSize: 13, marginTop: 8, textAlign: 'center' }}>⚠️ {importErr}</div>}
@@ -58,7 +70,7 @@ export default function QuestionsTab({ questions, onGoRun, onResetQuestions, onI
         <div className={u.secTitle}>คำถามทั้งหมด ({questions.length} ข้อ)</div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button type="button" className={u.btn} onClick={onResetQuestions}>🗑 รีเซ็ตคำถาม</button>
-          <button type="button" className={u.btnP} onClick={handleLoadSimsat}>📡 คำถาม SIMSAT</button>
+          <button type="button" className={u.btnP} onClick={handleShuffle}>🔀 Shuffle</button>
           <button type="button" className={u.btn} onClick={() => exportQuestionsCSV(questions)}>⬇️ Export CSV</button>
           <button type="button" className={u.btn} onClick={() => fileRef.current?.click()}>⬆️ Import CSV</button>
           <button className={u.btnP} onClick={onGoRun}>▶️ ไปรัน Test →</button>
@@ -82,6 +94,7 @@ export default function QuestionsTab({ questions, onGoRun, onResetQuestions, onI
               <span className={u.qNum}>{q.id}</span>
               <span className={u.qTxt} style={{ flex: 1 }}>{q.text}</span>
               <span className={`${u.badge} ${typeBadge(q)[0]}`}>{typeBadge(q)[1]}</span>
+              <button type="button" className={u.btnSm} onClick={() => handleSwap(q)} title="สลับด้วยคำถามสุ่มจาก pool เดิม">🔀</button>
               {q.referenceAnswer && (
                 <button type="button" className={u.btnSm} onClick={() => setExpandId(expandId === q.id ? null : q.id)}>
                   {expandId === q.id ? 'ซ่อน' : 'แนวทาง'}

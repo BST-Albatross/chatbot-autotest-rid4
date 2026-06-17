@@ -37,9 +37,42 @@ function JudgeMethodBadge({ label, modelId }) {
   )
 }
 
+const SCORE_LEGEND = [
+  {
+    label: 'ความถูกต้อง',
+    icon: '🎯',
+    desc: 'AI Judge ตรวจว่าคำตอบครอบคลุมประเด็นสำคัญในแนวทางคำตอบมากแค่ไหน',
+    pass: 'คะแนน ≥ 0.5 (ครอบคลุม ≥50%)',
+    fail: 'คะแนน < 0.5',
+  },
+  {
+    label: 'ความเร็ว',
+    icon: '⚡',
+    desc: 'เวลาที่ Chatbot ใช้ตอบคำถามนั้น',
+    pass: '≤ 10 วินาที',
+    warn: '10–30 วินาที (เตือน)',
+    fail: '> 30 วินาที',
+  },
+  {
+    label: 'ความสอดคล้อง',
+    icon: '🔗',
+    desc: 'คำตอบสอดคล้องกับคำถามโดยตรง ไม่ตอบนอกเรื่อง (ประเมินโดย AI Judge)',
+    pass: 'คะแนน ≥ 0.5',
+    fail: 'คะแนน < 0.5',
+  },
+  {
+    label: 'ความยาว',
+    icon: '📏',
+    desc: 'จำนวนคำในคำตอบ ไม่ควรยาวเกินไปจนอ่านยาก',
+    pass: '≤ 500 คำ',
+    fail: '> 500 คำ',
+  },
+]
+
 export default function ResultTab({ results }) {
   const [filter, setFilter] = useState('all')
   const [expand, setExpand] = useState(null)
+  const [showLegend, setShowLegend] = useState(false)
 
   if (!results.length) return (
     <div className={u.card}><div className={u.empty}>📄 ยังไม่มีผลลัพธ์ — รันแล้วดูที่แท็บ "สรุปผล" ก่อน</div></div>
@@ -57,10 +90,25 @@ export default function ResultTab({ results }) {
             <button key={f} className={filter === f ? u.btnP : u.btnSm} onClick={() => setFilter(f)}>{l} ({n})</button>
           ))}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            <button className={u.btnSm} onClick={() => setShowLegend(v => !v)}>📖 {showLegend ? 'ซ่อน' : 'คำอธิบายเกณฑ์'}</button>
             <button className={u.btnSm} onClick={() => exportDetailCSV(results)}>⬇️ Export ผลรายข้อ CSV</button>
             <button className={u.btnSm} onClick={() => exportJSON(results)}>⬇️ JSON</button>
           </div>
         </div>
+
+        {showLegend && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, margin: '8px 0 12px', fontSize: 12 }}>
+            {SCORE_LEGEND.map(d => (
+              <div key={d.label} style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>{d.icon} {d.label}</div>
+                <div style={{ color: 'var(--text-2)', marginBottom: 4 }}>{d.desc}</div>
+                <div style={{ color: 'var(--ok-text)' }}>✅ ผ่าน: {d.pass}</div>
+                {d.warn && <div style={{ color: 'var(--warn-text)' }}>⚠️ เตือน: {d.warn}</div>}
+                <div style={{ color: 'var(--err-text)' }}>❌ ไม่ผ่าน: {d.fail}</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className={u.wrap}>
           <table className={u.tbl}>
@@ -69,12 +117,12 @@ export default function ResultTab({ results }) {
                 <th style={{ width: 32 }}>#</th>
                 <th>คำถาม</th>
                 <th style={{ width: 56 }}>ประเภท</th>
-                <th style={{ width: 100 }}>ความถูกต้อง</th>
+                <th style={{ width: 100, cursor: 'help' }} title="AI Judge ตรวจว่าคำตอบครอบคลุมประเด็นสำคัญมากแค่ไหน — ผ่านที่ ≥0.5">🎯 ความถูกต้อง</th>
                 <th style={{ width: 130 }}>วิธีตรวจ</th>
-                <th style={{ width: 90 }}>เวลา</th>
-                <th style={{ width: 76 }}>สอดคล้อง</th>
-                <th style={{ width: 76 }}>ความยาว</th>
-                <th style={{ width: 56 }}>รวม</th>
+                <th style={{ width: 90, cursor: 'help' }} title="เวลาที่ใช้ตอบ — ✅ ≤10s / ⚠️ 10-30s / ❌ >30s">⚡ เวลา</th>
+                <th style={{ width: 76, cursor: 'help' }} title="คำตอบสอดคล้องกับคำถามโดยตรงไม่ออกนอกเรื่อง — ผ่านที่ ≥0.5">🔗 สอดคล้อง</th>
+                <th style={{ width: 76, cursor: 'help' }} title="จำนวนคำในคำตอบ — ผ่านที่ ≤500 คำ">📏 ความยาว</th>
+                <th style={{ width: 56, cursor: 'help' }} title="คะแนนรวม 4 มิติ — ผ่านที่ ≥3/4">รวม</th>
               </tr>
             </thead>
             <tbody>

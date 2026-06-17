@@ -5,7 +5,7 @@ import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { handleDataApi, initDataDirs } from './dataStore.mjs'
+import { handleDataApi, handleCsvApi, initDataDirs } from './dataStore.mjs'
 
 initDataDirs()
 
@@ -123,6 +123,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.url?.startsWith('/api/data/')) {
       const handled = await handleDataApi(req, res)
+      if (handled) return
+    }
+    if (req.url?.startsWith('/api/csv/')) {
+      const handled = await handleCsvApi(req, res)
       if (handled) return
     }
     if (req.method === 'GET' || req.method === 'HEAD') {

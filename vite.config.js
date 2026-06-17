@@ -1,6 +1,6 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
-import { handleDataApi, initDataDirs } from './dataStore.mjs'
+import { handleDataApi, handleCsvApi, initDataDirs } from './dataStore.mjs'
 
 function dataApiPlugin() {
   return {
@@ -11,6 +11,25 @@ function dataApiPlugin() {
         if (!req.url?.startsWith('/api/data/')) return next()
         try {
           const handled = await handleDataApi(req, res)
+          if (!handled) next()
+        } catch (err) {
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ error: err.message }))
+        }
+      })
+    },
+  }
+}
+
+function csvApiPlugin() {
+  return {
+    name: 'csv-api',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/api/csv/')) return next()
+        try {
+          const handled = await handleCsvApi(req, res)
           if (!handled) next()
         } catch (err) {
           res.statusCode = 500
@@ -129,7 +148,7 @@ export default defineConfig(({ mode }) => {
   return {
     // เปิดให้ import.meta.env อ่าน DEFAULT_DIFY_API_KEY จาก .env โดยตรง (ไม่ bake ด้วย define)
     envPrefix: ['VITE_', 'DEFAULT_'],
-    plugins: [react(), dataApiPlugin(), llmProxyPlugin()],
+    plugins: [react(), dataApiPlugin(), csvApiPlugin(), llmProxyPlugin()],
     base: './',
   }
 })

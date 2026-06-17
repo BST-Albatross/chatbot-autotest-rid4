@@ -4,6 +4,7 @@ import QuestionsTab from './components/QuestionsTab.jsx'
 import RunTab from './components/RunTab.jsx'
 import ResultTab from './components/ResultTab.jsx'
 import SummaryTab from './components/SummaryTab.jsx'
+import PoolEditorTab from './components/PoolEditorTab.jsx'
 import { DIFY_DEFAULTS, TEST_DEFAULTS, getDefaultDifyApiKey } from './config/settings.js'
 import {
   canResumeSession,
@@ -21,6 +22,7 @@ import s from './App.module.css'
 const TABS = [
   { id: 'config', icon: '⚙️', label: 'ตั้งค่า' },
   { id: 'questions', icon: '📋', label: 'คำถาม' },
+  { id: 'pool', icon: '✏️', label: 'จัดการ Pool' },
   { id: 'run', icon: '▶️', label: 'รัน Test' },
   { id: 'summary', icon: '📊', label: 'สรุปผล' },
   { id: 'result', icon: '📄', label: 'ผลรายข้อ' },
@@ -171,6 +173,7 @@ export default function App() {
             onImportQuestions={qs => { persistQuestions(qs, 'imported'); setQuestions(qs) }}
           />
         )}
+        {tab === 'pool' && <PoolEditorTab />}
         {tab === 'run' && (
           <RunTab
             questions={questions}
